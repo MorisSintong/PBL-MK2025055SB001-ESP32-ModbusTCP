@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>POLIBATAM CONTROLLER</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <style>
+        * { box-sizing: border-box; }
+        body { background-color: #1a1a1d; color: white; font-family: 'Segoe UI', sans-serif; text-align: center; margin: 0; padding: 10px; display: flex; flex-direction: column; min-height: 100vh; }
+        
+        h2 { margin: 10px 0; color: #eee; font-size: 1.2rem; }
+        
+        /* Status Bar */
+        #status { 
+            padding: 12px; font-weight: bold; border-radius: 8px; margin-bottom: 10px; 
+            font-size: 1rem; text-transform: uppercase; letter-spacing: 1px; transition: 0.3s;
+        }
+        .access-granted { background-color: #0f3d0f; color: #00ff00; border: 1px solid #00ff00; }
+        .access-denied { background-color: #3d1010; color: #ff4444; border: 1px solid #ff4444; }
+        .system-stop { background-color: #333; color: #aaa; border: 1px solid #555; } /* Style Baru untuk STOP */
+
+        /* Video Container */
+        .video-wrapper {
+            width: 100%; max-width: 640px; margin: 0 auto; aspect-ratio: 16/9;
+            background: #000; border-radius: 10px; overflow: hidden; border: 2px solid #444;
+            position: relative; display: flex; align-items: center; justify-content: center;
+        }
+        
+        img { width: 100%; height: 100%; object-fit: cover; display: block; transition: 0.3s; } 
+        .cam-placeholder { color: #666; font-size: 1rem; position: absolute; display: none; font-weight: bold;}
+
+        /* Grid Tombol */
+        .btn-grid { 
+            display: grid; grid-template-columns: 1fr 1fr; gap: 10px; 
+            width: 100%; max-width: 640px; margin: 20px auto; flex-grow: 1;
+        }
+        
+        button.ctrl { 
+            padding: 20px; font-size: 1rem; font-weight: bold; border: none; border-radius: 10px; 
+            color: white; cursor: pointer; opacity: 0.3; pointer-events: none; transition: 0.2s;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        
+        .btn-start { background-color: #28a745; }
+        .btn-stop { background-color: #dc3545; }
+        .btn-emg { background-color: #ffc107; color: black; grid-column: span 2; opacity: 1 !important; pointer-events: auto !important; }
+        .btn-reset { background-color: #6c757d; grid-column: span 2; }
+
+        /* State Active */
+        .active { opacity: 1 !important; pointer-events: auto !important; transform: translateY(-2px); }
+        .active:active { transform: translateY(2px); }
+
+        /* Lamps */
+        .lamp {
+            padding: 8px 20px; border-radius: 20px; font-weight: bold; font-size: 0.8rem;
+            background: #333; color: #555; border: 2px solid #444; transition: 0.3s;
+        }
+        .lamp-on-green { background: #0f3d0f; color: #00ff00; border-color: #00ff00; box-shadow: 0 0 10px #00ff00; }
+        .lamp-on-red { background: #3d1010; color: #ff4444; border-color: #ff4444; box-shadow: 0 0 10px #ff4444; }
+        .lamp-on-yellow { background: #3d3d10; color: #ffff00; border-color: #ffff00; box-shadow: 0 0 10px #ffff00; animation: blink 1s infinite; }
+
+        @keyframes blink { 50% { opacity: 0.5; } }
+
+    </style>
+</head>
+<body>
+
+    <h2>MK202505SB001 - WEB CONTROL</h2>
+
+    <div id="status" class="system-stop">MENUNGGU KONEKSI...</div>
+
+    <div id="lastOp" style="margin-bottom: 10px; color: #aaa; font-size: 0.9rem; font-weight: bold;">
+        LAST OPERATOR: -
+    </div>
+
+    <!-- PLC INDICATORS -->
+    <div style="display: flex; justify-content: center; gap: 15px; margin-bottom: 15px;">
+        <div id="lampRun" class="lamp">RUN</div>
+        <div id="lampStop" class="lamp">STOP</div>
+        <div id="lampEmg" class="lamp">EMG</div>
+    </div>
+
+    <div class="video-wrapper">
+        <div id="placeholder" class="cam-placeholder">KAMERA MATI</div>
+        <img id="videoStream" src="{{ url_for('video_feed') }}">
+    </div>
+
+    <div class="btn-grid">
+        <button id="btnStart" class="ctrl btn-start" onclick="kirim('start')">START</button>
+        <button id="btnStop" class="ctrl btn-stop" onclick="kirim('stop')">STOP</button>
+        <button id="btnEmg" class="ctrl btn-emg" onclick="kirim('emergency')">EMERGENCY</button>
+        <button id="btnReset" class="ctrl btn-reset" onclick="kirim('reset')">RESET</button>
+    </div>
+
+    <!-- USER REGISTRATION SECTION -->
+    <div style="margin: 20px auto; border-top: 1px solid #444; padding-top: 20px; width: 100%; max-width: 640px;">
+        <h3 style="color: #eee; margin-bottom: 15px;">USER REGISTRATION</h3>
+        <div style="display: flex; gap: 10px; justify-content: center; margin-bottom: 15px;">
+            <input type="number" id="userIdInput" placeholder="Enter User ID" style="padding: 12px; border-radius: 8px; border: none; width: 150px; font-size: 1rem;">
+            <button onclick="startRegister()" style="padding: 12px 20px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">REGISTER</button>
+        </div>
+        <div id="regStatus" style="color: #aaa; margin-bottom: 15px; font-weight: bold;">Ready</div>
+        <button onclick="startTraining()" style="padding: 15px; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold; font-size: 1rem;">TRAIN MODEL</button>
+        
+        <!-- REGISTERED USERS LIST -->
+        <div style="margin-top: 20px; border-top: 1px solid #444; padding-top: 20px;">
+            <h3 style="color: #eee; font-size: 1rem;">REGISTERED USERS</h3>
+            <div id="userList" style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">
+                <!-- User items will go here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const imgElement = document.getElementById('videoStream');
+        const placeholder = document.getElementById('placeholder');
+
+        setInterval(function() {
+            fetch('/check_status')
+            .then(response => response.json())
+            .then(data => {
+                const statusBox = document.getElementById('status');
+                
+                // Update Last Operator
+                document.getElementById('lastOp').innerText = "LAST OPERATOR: " + data.last_operator;
+                
+                // UPDATE LAMPS
+                // Use default false if undefined to prevent errors, but now backend guarantees keys
+                updateLamp('lampRun', data.plc_running, 'lamp-on-green');
+                updateLamp('lampStop', data.plc_stopped, 'lamp-on-red');
+                updateLamp('lampEmg', data.plc_emergency, 'lamp-on-yellow');
+                
+                // Connection Warning
+                if (data.plc_connected === false) {
+                     document.getElementById('status').style.border = "2px dashed red";
+                } else {
+                     document.getElementById('status').style.border = "none";
+                }
+
+                // --- 1. PRIORITAS TERTINGGI: MODE EMERGENCY (MERAH) ---
+                if (data.emergency) {
+                    statusBox.innerText = "!!! EMERGENCY MODE AKTIF !!!";
+                    statusBox.className = "access-denied"; // Warna Merah
+                    statusBox.style.backgroundColor = "red";
+                    statusBox.style.color = "white";
+                    
+                    // Layar Jadi Merah Gelap
+                    imgElement.style.opacity = "0.1";
+                    placeholder.innerText = "EMERGENCY STOP";
+                    placeholder.style.display = "block";
+                    placeholder.style.color = "red";
+
+                    // Tombol Kunci Semua KECUALI RESET
+                    toggleButtons(false, false, false, true);
+                }
+
+                // --- 2. MODE STOP / KAMERA MATI (ABU-ABU / NORMAL) ---
+                else if (!data.camera_on) {
+                    statusBox.innerText = "SISTEM STOP - TEKAN RESET UNTUK MULAI";
+                    statusBox.className = "system-stop"; // Warna Abu
+                    statusBox.style.backgroundColor = ""; 
+                    statusBox.style.color = "";
+                    
+                    // Layar Jadi Hitam Biasa
+                    imgElement.style.opacity = "0";
+                    placeholder.innerText = "KAMERA MATI";
+                    placeholder.style.display = "block";
+                    placeholder.style.color = "#666";
+
+                    // Di Mode STOP:
+                    // Start & Stop -> MATI
+                    // Emergency -> AKTIF (Safety First: Emergency harus bisa ditekan kapanpun)
+                    // Reset -> AKTIF (Untuk nyalakan kamera lagi)
+                    toggleButtons(false, false, true, true);
+                }
+
+                // --- 3. MODE NORMAL / WAJAH DIKENALI (HIJAU) ---
+                else if (data.authorized) {
+                    statusBox.innerText = "AKSES DITERIMA: " + data.name;
+                    statusBox.className = "access-granted";
+                    
+                    imgElement.style.opacity = "1";
+                    placeholder.style.display = "none";
+
+                    // Semua Tombol Aktif KECUALI Reset
+                    toggleButtons(true, true, true, false);
+                }
+
+                // --- 4. MODE WAJAH TIDAK DIKENALI ---
+                else {
+                    statusBox.innerText = "AKSES DITOLAK: WAJAH TIDAK DIKENALI";
+                    statusBox.className = "access-denied";
+                    statusBox.style.backgroundColor = ""; 
+                    
+                    imgElement.style.opacity = "1";
+                    placeholder.style.display = "none";
+
+                    // Kunci Semua Tombol
+                    toggleButtons(false, false, false, false);
+                }
+            })
+            .catch(err => console.log("Server Putus"));
+        }, 500);
+
+        // Fungsi Helper biar codingan rapi
+        function toggleButtons(start, stop, emg, reset) {
+            setBtn('btnStart', start);
+            setBtn('btnStop', stop);
+            setBtn('btnEmg', emg);
+            setBtn('btnReset', reset);
+        }
+
+        function setBtn(id, isActive) {
+            const btn = document.getElementById(id);
+            if (isActive) btn.classList.add('active');
+            else btn.classList.remove('active');
+        }
+
+        function updateLamp(id, isOn, className) {
+            const el = document.getElementById(id);
+            if (isOn) el.classList.add(className);
+            else el.classList.remove(className);
+        }
+
+        function kirim(cmd) {
+            fetch('/command/' + cmd);
+            if (navigator.vibrate) navigator.vibrate(50);
+        }
+
+        // --- NEW REGISTRATION FUNCTIONS ---
+        function startRegister() {
+            const id = document.getElementById('userIdInput').value;
+            if (!id) {
+                alert("Please enter a User ID");
+                return;
+            }
+            fetch('/start_register/' + id)
+                .then(res => res.json())
+                .then(data => {
+                    console.log(data);
+                    document.getElementById('regStatus').innerText = "Starting capture...";
+                });
+        }
+
+        function startTraining() {
+            const statusBtn = document.getElementById('regStatus');
+            statusBtn.innerText = "Training started... Please wait.";
+            statusBtn.style.color = "#ffff00";
+            
+            fetch('/train_model')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'trained') {
+                        statusBtn.innerText = "Training Complete!";
+                        statusBtn.style.color = "#00ff00";
+                        alert("Training Complete!");
+                        loadUsers(); // Refresh list just in case
+                    } else {
+                        statusBtn.innerText = "System Busy";
+                    }
+                })
+                .catch(err => {
+                    statusBtn.innerText = "Error during training";
+                    statusBtn.style.color = "red";
+                });
+        }
+
+        // --- USER MANAGEMENT ---
+        function loadUsers() {
+            fetch('/get_users')
+                .then(res => res.json())
+                .then(users => {
+                    const list = document.getElementById('userList');
+                    list.innerHTML = "";
+                    if (users.length === 0) {
+                        list.innerHTML = "<span style='color:#666; font-style:italic;'>No users registered</span>";
+                        return;
+                    }
+                    users.forEach(id => {
+                        const div = document.createElement('div');
+                        div.style = "background: #2a2a2d; padding: 8px 15px; border-radius: 20px; display: flex; align-items: center; gap: 10px; border: 1px solid #444; box-shadow: 0 2px 4px rgba(0,0,0,0.2);";
+                        div.innerHTML = `
+                            <span style="font-weight: bold; color: #fff; font-size: 0.9rem;">ID: ${id}</span>
+                            <button onclick="deleteUser(${id})" style="background: #dc3545; color: white; border: none; padding: 4px 8px; border-radius: 50%; cursor: pointer; font-weight:bold; font-size: 0.8rem; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">&times;</button>
+                        `;
+                        list.appendChild(div);
+                    });
+                });
+        }
+
+        function deleteUser(id) {
+            if(!confirm("Are you sure you want to delete User ID " + id + "?\n\nIMPORTANT: You must click 'TRAIN MODEL' afterwards to apply changes.")) return;
+            
+            fetch('/delete_user/' + id)
+                .then(res => res.json())
+                .then(data => {
+                    loadUsers();
+                    alert("User " + id + " deleted.\n\nPlease click 'TRAIN MODEL' to update the system.");
+                });
+        }
+
+        // Initial Load
+        loadUsers();
+
+        setInterval(function() {
+            fetch('/get_registration_status')
+                .then(res => res.json())
+                .then(data => {
+                    const regStatus = document.getElementById('regStatus');
+                    if (data.mode) {
+                        regStatus.innerText = `Capturing: ${data.count}/${data.limit}`;
+                        regStatus.style.color = "#00ff00";
+                    } else if (data.training) {
+                        regStatus.innerText = "Training in progress...";
+                        regStatus.style.color = "#ffff00";
+                    } else {
+                        if (regStatus.innerText.includes("Capturing")) {
+                             regStatus.innerText = "Capture Complete. Ready to Train.";
+                             regStatus.style.color = "#aaa";
+                             loadUsers(); // Refresh list when capture done
+                        }
+                    }
+                })
+                .catch(err => console.log("Reg Status Error"));
+        }, 1000);
+    </script>
+</body>
+</html>

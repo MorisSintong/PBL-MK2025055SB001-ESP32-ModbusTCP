@@ -1,3 +1,81 @@
+# =========================
+# OS Generated Files
+# =========================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# =========================
+# C/C++ & Build Outputs
+# =========================
+*.o
+*.ko
+*.obj
+*.elf
+*.bin
+*.hex
+*.map
+*.ilk
+*.pdb
+*.exp
+*.lib
+*.a
+*.la
+*.lo
+*.dll
+*.so
+*.dylib
+
+# =========================
+# STM32CubeIDE / Eclipse
+# =========================
+Debug/
+Release/
+.metadata/
+# Note: Keep .project, .cproject, and .ioc tracked for team collaboration
+
+# =========================
+# MATLAB & Simulink
+# =========================
+slprj/
+*.asv
+*.slxc
+*.mex*
+*.mat
+*~
+
+# =========================
+# LaTeX Documentation
+# =========================
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.pdfsync
+
+# =========================
+# IDEs & Editors
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.zed/
 .pio
 .vscode/.browse.c_cpp.db*
 .vscode/c_cpp_properties.json
