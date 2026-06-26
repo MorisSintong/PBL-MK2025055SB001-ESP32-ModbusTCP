@@ -1,0 +1,135 @@
+(footprint "Untitled"
+	(version 20241229)
+	(generator "pcbnew")
+	(generator_version "9.0")
+	(layer "F.Cu")
+	(property "Reference" "LM2596S Buck-Converter"
+		(at 22.5 9.5 0)
+		(unlocked yes)
+		(layer "F.SilkS")
+		(uuid "8b97b091-8ff6-4874-bfdf-4ccf2af11f02")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.1)
+			)
+		)
+	)
+	(property "Value" "Untitled"
+		(at 22.5 11 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(uuid "98e511d7-c59e-49ba-a5fa-e9342054b26d")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "f3f5ea51-5016-475f-9427-6b6a426ace3a")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "4574bd73-c807-4322-aa7c-6393f7f65cde")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr smd)
+	(fp_rect
+		(start 0.5 0.5)
+		(end 44.5 22.5)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(fill no)
+		(layer "F.SilkS")
+		(uuid "59a74aad-52fa-4c68-a718-aed600cc670b")
+	)
+	(fp_rect
+		(start 0 0)
+		(end 45 23)
+		(stroke
+			(width 0.05)
+			(type default)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "827c0ee6-2f8e-4a21-9a85-cd4a8f41eb01")
+	)
+	(fp_text user "${REFERENCE}"
+		(at 22.5 12.5 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(uuid "63e6157d-91ca-42e1-9682-8b792300d46c")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(pad "1" thru_hole rect
+		(at 2.5 2.5)
+		(size 3 3)
+		(drill 1.52)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "61869a1e-3b6d-4c49-9562-1422ae356c6d")
+	)
+	(pad "2" thru_hole rect
+		(at 2.5 20.5)
+		(size 3 3)
+		(drill 1.52)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "c5107e4b-c04f-4005-ace7-bc2007a448a4")
+	)
+	(pad "3" thru_hole rect
+		(at 42.5 2.5)
+		(size 3 3)
+		(drill 1.52)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "93cc7341-6015-448f-8a91-999784385653")
+	)
+	(pad "4" thru_hole rect
+		(at 42.5 20.5)
+		(size 3 3)
+		(drill 1.52)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "104658e1-7d09-406b-9719-2a4708024889")
+	)
+	(embedded_fonts no)
+	(model "C:/Users/Moris/Documents/KULIAH/SEM5/PBL/design/26.01.07/Parts/Step-Down/MC00100--3DModel-STEP-269445.STEP"
+		(offset
+			(xyz 22.5 -11.5 0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz -90 -0 -0)
+		)
+	)
+)

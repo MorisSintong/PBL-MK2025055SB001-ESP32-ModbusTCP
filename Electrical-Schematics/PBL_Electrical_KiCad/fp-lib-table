@@ -1,0 +1,5 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "PBL_Proj-sem5")(type "KiCad")(uri "${KIPRJMOD}/PBL_Proj-sem5.pretty")(options "")(descr ""))
+  (lib (name "SamacSys_Parts")(type "KiCad")(uri "C:/Users/Moris/Documents/Kicad-Projects/Library-Loader/SamacSys_Parts.pretty")(options "")(descr ""))
+)

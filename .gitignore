@@ -65,6 +65,16 @@ slprj/
 *.pdfsync
 
 # =========================
+# KiCad Backups
+# =========================
+*.bak
+*-backups/
+*.kicad_pcb-bak
+*.sch-bak
+*.kicad_sch-bak
+*.kicad_prl-bak
+
+# =========================
 # IDEs & Editors
 # =========================
 .vscode/
