@@ -1,4 +1,3 @@
-
 # ESP32-Program
 
 PlatformIO firmware project for the **ESP32-S3 DevKitC-1**. The firmware turns

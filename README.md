@@ -68,3 +68,7 @@ See `System-Architecture.png` for the full block diagram and the per-directory
 4. Configure the PLC (FX5U) Modbus TCP client to connect to the ESP32 Ethernet
    IP (`192.168.1.50:503`) and read/write the coils listed in
    `ESP32-Program/src/main.cpp`.
+
+## Finieshed Product & Implementation
+![Finished PCB](IMG_20260108_125204.jpg)
+![Implementation](IMG_20260108_125654.jpg)
