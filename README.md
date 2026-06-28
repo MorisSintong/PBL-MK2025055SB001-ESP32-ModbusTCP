@@ -30,7 +30,6 @@ the Assembly Station that:
 ## System Architecture
 ```mermaid
 graph TD
-    %% Define main physical hardware blocks with clean styling
     Camera[Camera]
     PC[PC]
     PLC[PLC FX5U]
@@ -38,7 +37,6 @@ graph TD
     ExternalDevice[External Device]
     Output[Output]
 
-    %% Corrected: Nesting logical components within physical hardware
     subgraph ESP32Container [ESP-32 Physical Device]
         ESP32Core(ESP-32)
         subgraph HostedServices [Hosted Services]
@@ -46,34 +44,14 @@ graph TD
         end
     end
 
-    %% External Interface Connections
-    Camera -->|USB-Serial| PC
-    PC -->|Wi-Fi| ESP32Core
-    Wago --> Output
+    Camera ---|USB-Serial| PC
+    PC ---|HTTP Wi-Fi| ESP32Core
+    Wago --- Output
 
-    %% Corrected: Modbus (Explicit Client/Server roles to remove ambiguity)
-    %% Assuming a common architecture: PLC is Client, others are Servers.
-    %% Arrows point from Client to Server.
-    PLC -->|Modbus TCP/IP - PLC=Client, ESP-32=Server| ESP32Core
-    PLC -->|Modbus TCP/IP - PLC=Client, Wago=Server| Wago
+    PLC ===|Modbus TCP/IP PLC=Client, ESP-32=Server| ESP32Core
+    PLC ===|Modbus TCP/IP PLC=Client, Wago=Server| Wago
 
-    %% Corrected: Network-based external communication path
-    %% Shows connection from the *hosted web server* over Wi-Fi
     WebServer -.->|Wi-Fi| ExternalDevice
-
-    %% Styles for clean, consistent block diagram appearance
-    style Camera fill:#fff,stroke:#000,stroke-width:1px
-    style PC fill:#fff,stroke:#000,stroke-width:1px
-    style PLC fill:#fff,stroke:#000,stroke-width:1px
-    style Wago fill:#fff,stroke:#000,stroke-width:1px
-    style ExternalDevice fill:#fff,stroke:#000,stroke-width:1px
-    style Output fill:#fff,stroke:#000,stroke-width:1px
-    style ESP32Core fill:#fff,stroke:#000,stroke-width:1px
-    style WebServer fill:#fff,stroke:#000,stroke-width:1px
-    
-    %% Specific styles for containers
-    style ESP32Container fill:#f9f9f9,stroke:#000,stroke-width:1px,stroke-dasharray: 5 5
-    style HostedServices fill:#fff,stroke:#000,stroke-width:1px
 ```
 
 ## System Overview
