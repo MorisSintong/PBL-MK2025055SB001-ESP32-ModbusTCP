@@ -25,7 +25,7 @@ the Assembly Station that:
 | `Electrical-Schematics/` | KiCad project and rendered images of the electrical wiring (ESP32 + W5500 + PLC I/O). |
 | `ESP32-Program/` | PlatformIO firmware for the ESP32-S3 (Wi-Fi + Ethernet + Modbus TCP server). |
 | `Interface/` | Python (Flask + OpenCV) face-recognition HMI and the web/HTML front-end. |
-| `System-Architecture.png` | High-level block diagram of the whole system. |
+| `README.md` | High-level block diagram of the whole system. |
 
 ## System Architecture
 ```mermaid
