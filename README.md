@@ -28,8 +28,53 @@ the Assembly Station that:
 | `System-Architecture.png` | High-level block diagram of the whole system. |
 
 ## System Architecture
+```mermaid
+graph TD
+    %% Define main physical hardware blocks with clean styling
+    Camera[Camera]
+    PC[PC]
+    PLC[PLC FX5U]
+    Wago[Wago I/O Module]
+    ExternalDevice[External Device]
+    Output[Output]
 
-![System Architecture](System-Architecture.png)
+    %% Corrected: Nesting logical components within physical hardware
+    subgraph ESP32Container [ESP-32 Physical Device]
+        ESP32Core(ESP-32)
+        subgraph HostedServices [Hosted Services]
+            WebServer[Web Server]
+        end
+    end
+
+    %% External Interface Connections
+    Camera -->|USB-Serial| PC
+    PC -->|Wi-Fi| ESP32Core
+    Wago --> Output
+
+    %% Corrected: Modbus (Explicit Client/Server roles to remove ambiguity)
+    %% Assuming a common architecture: PLC is Client, others are Servers.
+    %% Arrows point from Client to Server.
+    PLC -->|Modbus TCP/IP - PLC=Client, ESP-32=Server| ESP32Core
+    PLC -->|Modbus TCP/IP - PLC=Client, Wago=Server| Wago
+
+    %% Corrected: Network-based external communication path
+    %% Shows connection from the *hosted web server* over Wi-Fi
+    WebServer -.->|Wi-Fi| ExternalDevice
+
+    %% Styles for clean, consistent block diagram appearance
+    style Camera fill:#fff,stroke:#000,stroke-width:1px
+    style PC fill:#fff,stroke:#000,stroke-width:1px
+    style PLC fill:#fff,stroke:#000,stroke-width:1px
+    style Wago fill:#fff,stroke:#000,stroke-width:1px
+    style ExternalDevice fill:#fff,stroke:#000,stroke-width:1px
+    style Output fill:#fff,stroke:#000,stroke-width:1px
+    style ESP32Core fill:#fff,stroke:#000,stroke-width:1px
+    style WebServer fill:#fff,stroke:#000,stroke-width:1px
+    
+    %% Specific styles for containers
+    style ESP32Container fill:#f9f9f9,stroke:#000,stroke-width:1px,stroke-dasharray: 5 5
+    style HostedServices fill:#fff,stroke:#000,stroke-width:1px
+```
 
 ## System Overview
 
@@ -45,7 +90,7 @@ the Assembly Station that:
 3. **Mitsubishi FX5U PLC** is the Modbus TCP client that controls the Assembly
    Station actuators based on the ESP32 coils.
 
-See `System-Architecture.png` for the full block diagram and the per-directory
+See the [System Architecture](#system-architecture) section for the full block diagram and the per-directory
 `README.md` files for component-level details.
 
 ## Quick Start
