@@ -1,0 +1,16 @@
+:name: Virtual PLC Node Emulation
+:description: Renode platform for Virtual PLC / Gateway controller with socket bridging
+
+using sysbus
+
+$name?="plc_node"
+mach create $name
+machine LoadPlatformDescription @platforms/cpus/stm32f4.repl
+
+$port?=15503
+
+emulation CreateServerSocketTerminal $port "term" false
+connector Connect sysbus.usart2 term
+
+echo "Virtual PLC Node Initialized on socket terminal"
+start

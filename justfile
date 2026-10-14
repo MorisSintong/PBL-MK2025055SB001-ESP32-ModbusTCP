@@ -16,6 +16,14 @@ build:
 clean:
     just -f ESP32-Program/justfile -d ESP32-Program clean
 
+# Run full end-to-end multi-node system emulation & QoS benchmark
+emulate-qos samples="50":
+    python Emulation/system_emulator.py {{samples}}
+
+# Run Renode headless hardware emulation
+emulate-renode:
+    python Emulation/renode_runner.py
+
 # Flash ESP32-S3 over SWD/JTAG using probe-rs
 flash-probe-rs:
     just -f ESP32-Program/justfile -d ESP32-Program flash-probe-rs
