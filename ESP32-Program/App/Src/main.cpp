@@ -24,9 +24,13 @@ static TaskHandle_t s_wifi_task_handle = nullptr;
 void modbusTask(void *pvParameters) {
   pbl::Logger::log("[Core 1] Modbus & Ethernet task running");
 
+  // Safe tick calculation: guaranteed >= 1 tick to prevent IDLE1 starvation and
+  // TWDT reset
+  const TickType_t delay_ticks = (pdMS_TO_TICKS(1) > 0) ? pdMS_TO_TICKS(1) : 1;
+
   for (;;) {
     uint32_t now_ms = millis();
-    uint64_t now_us = micros();
+    uint32_t now_us = static_cast<uint32_t>(micros());
 
     // 1. Check Ethernet Link and Socket diagnostics
     g_eth_driver.check_link_status(now_ms);
@@ -37,8 +41,8 @@ void modbusTask(void *pvParameters) {
     // feedback)
     g_modbus_bridge.update(g_bridge_state, now_ms, now_us);
 
-    // Yield for OS scheduling
-    vTaskDelay(1 / portTICK_PERIOD_MS);
+    // Yield for OS scheduling & watchdog reset
+    vTaskDelay(delay_ticks);
   }
 }
 
@@ -49,12 +53,14 @@ void wifiTask(void *pvParameters) {
   pbl::Logger::log("[Core 0] Launching Wi-Fi & REST API...");
   g_web_server.init();
 
+  const TickType_t delay_ticks = (pdMS_TO_TICKS(2) > 0) ? pdMS_TO_TICKS(2) : 1;
+
   for (;;) {
     uint32_t now_ms = millis();
     g_web_server.update(now_ms);
 
-    // Yield to background Wi-Fi stack
-    vTaskDelay(2 / portTICK_PERIOD_MS);
+    // Yield to background Wi-Fi stack & watchdog reset
+    vTaskDelay(delay_ticks);
   }
 }
 
@@ -80,16 +86,22 @@ void setup() {
   g_modbus_bridge.init();
 
   // Launch FreeRTOS Core 1 Task: Modbus Server
-  xTaskCreatePinnedToCore(modbusTask, "ModbusTask",
-                          pbl::config::TASK_STACK_SIZE_BYTES, nullptr,
-                          pbl::config::MODBUS_TASK_PRIORITY,
-                          &s_modbus_task_handle, pbl::config::MODBUS_TASK_CORE);
+  BaseType_t ret1 = xTaskCreatePinnedToCore(
+      modbusTask, "ModbusTask", pbl::config::TASK_STACK_SIZE_BYTES, nullptr,
+      pbl::config::MODBUS_TASK_PRIORITY, &s_modbus_task_handle,
+      pbl::config::MODBUS_TASK_CORE);
+  if (ret1 != pdPASS) {
+    pbl::Logger::log("[FATAL] Failed to create ModbusTask on Core 1!");
+  }
 
   // Launch FreeRTOS Core 0 Task: Wi-Fi REST Server
-  xTaskCreatePinnedToCore(wifiTask, "WifiTask",
-                          pbl::config::TASK_STACK_SIZE_BYTES, nullptr,
-                          pbl::config::WIFI_TASK_PRIORITY, &s_wifi_task_handle,
-                          pbl::config::WIFI_TASK_CORE);
+  BaseType_t ret2 = xTaskCreatePinnedToCore(
+      wifiTask, "WifiTask", pbl::config::TASK_STACK_SIZE_BYTES, nullptr,
+      pbl::config::WIFI_TASK_PRIORITY, &s_wifi_task_handle,
+      pbl::config::WIFI_TASK_CORE);
+  if (ret2 != pdPASS) {
+    pbl::Logger::log("[FATAL] Failed to create WifiTask on Core 0!");
+  }
 }
 
 void loop() {

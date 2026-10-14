@@ -28,7 +28,7 @@ def _log_timing_csv(source, cmd, duration_ms, success):
             writer.writerow(row)
 
 # --- KONFIGURASI ---
-ESP32_IP = "http://10.194.229.48"  
+ESP32_IP = "http://10.251.64.200"  
 
 # Fix for cv2.data attribute error
 if hasattr(cv2, 'data'):

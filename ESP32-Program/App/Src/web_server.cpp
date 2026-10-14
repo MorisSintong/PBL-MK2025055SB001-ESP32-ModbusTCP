@@ -27,13 +27,22 @@ void WebServerManager::init() {
   }
 
   WiFi.begin(config::WIFI_SSID, config::WIFI_PASSWORD);
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");
-    delay(500);
-  }
-  Serial.println();
 
-  Logger::log("[Core 0] Wi-Fi IP: " + WiFi.localIP().toString());
+  // Bounded connection attempt: prevent infinite blocking if router is offline
+  // at boot
+  constexpr uint32_t MAX_BOOT_ATTEMPTS = 20; // 20 * 500ms = 10 seconds timeout
+  uint32_t attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < MAX_BOOT_ATTEMPTS) {
+    delay(500);
+    attempts++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Logger::log("[Core 0] Wi-Fi Connected. IP: " + WiFi.localIP().toString());
+  } else {
+    Logger::log("[Core 0] Wi-Fi initial connection timed out. Will retry in "
+                "background supervisor.");
+  }
 
   if (MDNS.begin(config::MDNS_HOSTNAME)) {
     Logger::log(std::string("[Core 0] mDNS responder started: http://") +
@@ -51,15 +60,19 @@ void WebServerManager::init() {
 }
 
 void WebServerManager::handle_root() {
+  server_.sendHeader("Access-Control-Allow-Origin", "*");
   server_.send(200, "text/plain", "ESP32 Opti-Server Online");
 }
 
 void WebServerManager::handle_status() {
   std::string json = state_.generate_status_json();
+  server_.sendHeader("Access-Control-Allow-Origin", "*");
   server_.send(200, "application/json", json.c_str());
 }
 
 void WebServerManager::handle_action() {
+  server_.sendHeader("Access-Control-Allow-Origin", "*");
+
   if (!server_.hasArg("type")) {
     server_.send(400, "text/plain", "Missing type");
     Logger::log("[Web] Error: Missing type argument");
@@ -76,12 +89,14 @@ void WebServerManager::handle_action() {
     return;
   }
 
-  uint64_t now_us = micros();
+  uint32_t now_us = static_cast<uint32_t>(micros());
   state_.trigger_command(cmd, now_us);
   server_.send(200, "text/plain", "OK");
 }
 
 void WebServerManager::handle_user_detection() {
+  server_.sendHeader("Access-Control-Allow-Origin", "*");
+
   if (!server_.hasArg("detected")) {
     server_.send(400, "text/plain", "Missing detected parameter");
     return;
@@ -101,7 +116,7 @@ void WebServerManager::update(uint32_t now_ms) {
   server_.handleClient();
 
   // Auto-reconnect supervision logic
-  if (now_ms - last_wifi_check_ms_ > config::WIFI_RECONNECT_INTERVAL_MS) {
+  if ((now_ms - last_wifi_check_ms_) >= config::WIFI_RECONNECT_INTERVAL_MS) {
     last_wifi_check_ms_ = now_ms;
     if (WiFi.status() != WL_CONNECTED) {
       Logger::log("[Core 0] Wi-Fi lost. Reconnecting...");

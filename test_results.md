@@ -20,9 +20,9 @@ This document compiles all test methodologies, verification suites, and performa
 ```mermaid
 flowchart TD
     subgraph Layer1 [1. Unit Testing - CTest]
-        UT1[BridgeState Atomic Logic]
-        UT2[Modbus Coils & Pinouts]
-        UT3[REST API Query Parsing]
+        UT1[BridgeState Atomic Logic & Edge Cases]
+        UT2[Modbus Coils, Headroom & Hardware Sanity]
+        UT3[REST API Query Parsing & Injection Defense]
     end
 
     subgraph Layer2 [2. Host Emulation - Multi-Node Network]
@@ -46,15 +46,15 @@ flowchart TD
 
 ## 2. Off-Target Firmware Unit Tests (CTest Suite)
 
-The firmware was compiled using **LLVM-MinGW Clang 23.1.1** with `-std=c++17` and executed headlessly via CTest.
+The firmware was compiled using **LLVM-MinGW Clang 23.1.1** with `-std=c++17` and executed headlessly via CTest. The test suite includes 100% robust coverage of nominal states, negative inputs, boundary conditions, and timing anomalies:
 
-| Test Suite | File | Targets Verified | Execution Time | Status |
+| Test Suite | File | Targets & Edge Cases Verified | Execution Time | Status |
 | :--- | :--- | :--- | :---: | :---: |
-| **BridgeStateTest** | `tests/test_bridge_state.cpp` | Atomic command transitions, $\mu\text{s}$ latency calculation, momentary 500 ms pulse timeout logic, face recognition latching | 0.01 s | **PASSED** |
-| **ModbusCoilsTest** | `tests/test_modbus_coils.cpp` | FX5U command coils (112–115), user auth (116), status coils (208–210), table boundary checks (300 registers), SPI pin assignments | 0.01 s | **PASSED** |
-| **RestApiTest** | `tests/test_rest_api.cpp` | Command string parsing (`start`, `stop`, `emergency`, `reset`), invalid command rejection, boolean parameter conversion | 0.01 s | **PASSED** |
+| **BridgeStateTest** | `tests/test_bridge_state.cpp` | • Atomic command transitions across all 4 channels (Start, Stop, Emergency, Reset)<br>• Single-consume idempotency & channel cross-isolation<br>• Unknown / negative command rejection<br>• Rapid command toggling & overwrite latency tracking<br>• Clock anomaly / underflow defense (`current_time < start`)<br>• Momentary pulse timers across all 4 channels (exact boundary, pre/post-expiry)<br>• Pulse edge cases (zero duration expiry, pulse re-trigger/extension)<br>• User detection latching & rapid toggle filtering<br>• Fault/all-true & high-latency JSON status serialization<br>• Host mock ModbusBridge integration | ~0.03 s | **PASSED** |
+| **ModbusCoilsTest** | `tests/test_modbus_coils.cpp` | • FX5U command coils (112–115) and operator auth (116)<br>• Status feedback coils (208–210)<br>• Strict address uniqueness and zero-collision check between sets<br>• Register table boundaries and expansion headroom (>= 50 spare coils)<br>• Hardware SPI pin distinctness & 8 MHz clock rate<br>• Dual-core FreeRTOS task partition & priority hierarchy (Modbus Core 1, Web Core 0) | ~0.03 s | **PASSED** |
+| **RestApiTest** | `tests/test_rest_api.cpp` | • Positive command parsing (`start`, `stop`, `emergency`, `reset`)<br>• Case-sensitivity defense (`Start`, `STOP`, `sTART` -> `Unknown`)<br>• Whitespace / control char defense (`\t`, `\r\n`, padding -> `Unknown`)<br>• Prefix/suffix collision defense (`starter`, `prestop`, `re-set` -> `Unknown`)<br>• Numeric, empty, and fuzzing/injection payloads (`<script>`, SQL injection, 4KB buffer overflow -> `Unknown`)<br>• Strict boolean query parameter parsing (`1`/`true` vs falsy/noise)<br>• Simulated end-to-end REST dispatch & latency validation | ~0.03 s | **PASSED** |
 
-**CTest Summary:** 3/3 tests passed (100% pass rate, 0 failures, total time: 0.04 s).
+**CTest Summary:** 3/3 test executables passed (18 granular sub-test suites, 100% pass rate, 0 failures, execution time: ~0.10 s).
 
 ---
 
@@ -123,6 +123,9 @@ To reproduce these results using the project's [`justfile`](file:///C:/Users/Mor
 ```powershell
 # Run the host CTest unit tests:
 just test
+
+# Update clangd compilation database:
+just update-compile-commands
 
 # Run the full distributed multi-node QoS emulation benchmark:
 just emulate-qos 50

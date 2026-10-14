@@ -16,12 +16,21 @@ struct PlcStatus {
   uint32_t last_latency_us{0};
 };
 
+struct PulseTimer {
+  bool active{false};
+  uint32_t start_ms{0};
+};
+
 class BridgeState {
 public:
+  static constexpr uint8_t STATUS_FLAG_RUNNING = 0x01;
+  static constexpr uint8_t STATUS_FLAG_STOPPED = 0x02;
+  static constexpr uint8_t STATUS_FLAG_EMERGENCY = 0x04;
+
   BridgeState() = default;
 
   // Trigger command from Web Server (Core 0)
-  bool trigger_command(CommandType cmd, uint64_t timestamp_us);
+  bool trigger_command(CommandType cmd, uint32_t timestamp_us);
   static CommandType parse_command_str(const std::string &cmd_str);
 
   // User detection from Face Recognition
@@ -30,10 +39,10 @@ public:
   bool consume_user_detection_changed(bool &current_val);
 
   // Consume pending commands in Modbus Task (Core 1)
-  bool consume_start_request(uint64_t current_time_us);
-  bool consume_stop_request(uint64_t current_time_us);
-  bool consume_emergency_request(uint64_t current_time_us);
-  bool consume_reset_request(uint64_t current_time_us);
+  bool consume_start_request(uint32_t current_time_us);
+  bool consume_stop_request(uint32_t current_time_us);
+  bool consume_emergency_request(uint32_t current_time_us);
+  bool consume_reset_request(uint32_t current_time_us);
 
   // Momentary coil pulse timer management (Core 1)
   void start_pulse_btn1(uint32_t now_ms);
@@ -75,22 +84,20 @@ private:
   std::atomic<bool> user_detected_{false};
   std::atomic<bool> user_detected_changed_{false};
 
-  // Latency timestamps
-  std::atomic<uint64_t> action_start_time_us_{0};
+  // Latency timestamps (32-bit native atomic for Xtensa LX7)
+  std::atomic<uint32_t> action_start_time_us_{0};
   std::atomic<uint32_t> last_internal_latency_us_{0};
 
-  // PLC status cache
-  std::atomic<bool> plc_running_{false};
-  std::atomic<bool> plc_stopped_{false};
-  std::atomic<bool> plc_emergency_{false};
+  // Atomic bitmask for PLC status (eliminates state tearing across cores)
+  std::atomic<uint8_t> plc_status_mask_{0};
 
-  // Momentary pulse timers (Core 1 only, no atomic required)
-  uint32_t timer_btn1_ms_{0};
-  uint32_t timer_btn2_ms_{0};
-  uint32_t timer_btn3_ms_{0};
-  uint32_t timer_btn4_ms_{0};
+  // Momentary pulse timers (Core 1 only, with explicit active flags)
+  PulseTimer timer_btn1_;
+  PulseTimer timer_btn2_;
+  PulseTimer timer_btn3_;
+  PulseTimer timer_btn4_;
 
-  void record_latency(uint64_t current_time_us);
+  void record_latency(uint32_t current_time_us);
 };
 
 } // namespace pbl

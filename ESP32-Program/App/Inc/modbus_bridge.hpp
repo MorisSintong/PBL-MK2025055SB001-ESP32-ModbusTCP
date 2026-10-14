@@ -15,7 +15,7 @@ public:
   ModbusBridge() = default;
 
   void init();
-  void update(BridgeState &state, uint32_t now_ms, uint64_t now_us);
+  void update(BridgeState &state, uint32_t now_ms, uint32_t now_us);
 
   uint32_t get_connection_count() const { return connection_count_; }
 

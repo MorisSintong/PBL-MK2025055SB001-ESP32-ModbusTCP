@@ -23,7 +23,7 @@ void ModbusBridge::init() {
 }
 
 void ModbusBridge::update(BridgeState &state, uint32_t now_ms,
-                          uint64_t now_us) {
+                          uint32_t now_us) {
   // 1. Process command requests (Atomic inter-core)
   if (state.consume_start_request(now_us)) {
     mb_.Coil(config::COIL_BTN_START, true);
@@ -92,7 +92,7 @@ void ModbusBridge::init() {
 }
 
 void ModbusBridge::update(BridgeState &state, uint32_t now_ms,
-                          uint64_t now_us) {
+                          uint32_t now_us) {
   if (state.consume_start_request(now_us)) {
     state.start_pulse_btn1(now_ms);
   }

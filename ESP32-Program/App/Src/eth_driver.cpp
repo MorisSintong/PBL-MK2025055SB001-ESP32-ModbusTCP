@@ -1,5 +1,6 @@
 #include "eth_driver.hpp"
 #include "logger.hpp"
+#include <cstdio>
 
 namespace pbl {
 
@@ -31,7 +32,7 @@ void EthernetDriver::init() {
 }
 
 void EthernetDriver::check_link_status(uint32_t now_ms) {
-  if (now_ms - last_link_check_ms_ > config::ETH_LINK_CHECK_INTERVAL_MS) {
+  if ((now_ms - last_link_check_ms_) >= config::ETH_LINK_CHECK_INTERVAL_MS) {
     last_link_check_ms_ = now_ms;
     EthernetLinkStatus status = Ethernet.linkStatus();
     if (status == LinkOFF) {
@@ -44,25 +45,29 @@ void EthernetDriver::check_link_status(uint32_t now_ms) {
 
 void EthernetDriver::check_sockets_and_maintain(uint32_t now_ms,
                                                 uint32_t active_connections) {
-  if (now_ms - last_socket_check_ms_ > config::ETH_SOCKET_CHECK_INTERVAL_MS) {
+  if ((now_ms - last_socket_check_ms_) >=
+      config::ETH_SOCKET_CHECK_INTERVAL_MS) {
     last_socket_check_ms_ = now_ms;
     Ethernet.maintain(); // Periodic DHCP / socket cleanup
 
-    std::string log_msg =
-        "[Core 1] Connections: " + std::to_string(active_connections) +
-        " | Link: " + (Ethernet.linkStatus() == LinkON ? "ON" : "OFF");
-    Logger::log(log_msg);
+    // Zero dynamic heap allocation: format into fixed stack buffer
+    char log_buf[128];
+    std::snprintf(log_buf, sizeof(log_buf),
+                  "[Core 1] Total Connections: %u | Link: %s",
+                  static_cast<unsigned>(active_connections),
+                  (Ethernet.linkStatus() == LinkON ? "ON" : "OFF"));
+    Logger::log(log_buf);
 
-    // Debug socket state register dump
-    Serial.print("[W5500 Sockets] ");
-    for (int i = 0; i < 8; i++) {
+    // Safe socket register dump into fixed buffer
+    char sock_buf[128];
+    int offset = std::snprintf(sock_buf, sizeof(sock_buf), "[W5500 Sockets] ");
+    for (int i = 0; i < 8 && offset < static_cast<int>(sizeof(sock_buf) - 8);
+         i++) {
       uint8_t status = W5100.readSnSR(i);
-      Serial.print(i);
-      Serial.print(":");
-      Serial.print(status, HEX);
-      Serial.print(" ");
+      offset += std::snprintf(sock_buf + offset, sizeof(sock_buf) - offset,
+                              "%d:%02X ", i, status);
     }
-    Serial.println();
+    Logger::log(sock_buf);
   }
 }
 

@@ -16,6 +16,11 @@ build:
 clean:
     just -f ESP32-Program/justfile -d ESP32-Program clean
 
+# Copy compile_commands.json to root and ESP32-Program for Zed AST indexing
+update-compile-commands:
+    just -f ESP32-Program/justfile -d ESP32-Program update-compile-commands
+    Copy-Item -Force ESP32-Program/build-host/compile_commands.json ./compile_commands.json
+
 # Run full end-to-end multi-node system emulation & QoS benchmark
 emulate-qos samples="50":
     python Emulation/system_emulator.py {{samples}}

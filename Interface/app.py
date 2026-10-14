@@ -14,7 +14,7 @@ app = Flask(__name__)
 
 # --- KONFIGURASI ---
 # ESP32 WiFi IP - update this to match ESP32's actual WiFi IP
-ESP32_IP = "http://10.72.228.7"  # Or use the WiFi IP from ESP32 serial monitor
+ESP32_IP = "http://10.251.64.200"  # Or use the WiFi IP from ESP32 serial monitor
 
 # Fix for cv2.data attribute error
 if hasattr(cv2, 'data'):
