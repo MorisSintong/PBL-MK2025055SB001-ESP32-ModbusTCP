@@ -23,7 +23,7 @@ the Assembly Station that:
 | Path | Description |
 | --- | --- |
 | `Electrical-Schematics/` | KiCad project and rendered images of the electrical wiring (ESP32 + W5500 + PLC I/O). |
-| `ESP32-Program/` | PlatformIO firmware for the ESP32-S3 (Wi-Fi + Ethernet + Modbus TCP server). |
+| `ESP32-Program/` | Modular C++ firmware for the ESP32-S3 (CMake + Ninja + FreeRTOS + Modbus TCP + Justfile). |
 | `Interface/` | Python (Flask + OpenCV) face-recognition HMI and the web/HTML front-end. |
 | `README.md` | High-level block diagram of the whole system. |
 
@@ -61,9 +61,9 @@ graph TD
    - Recognizes the operator using an LBPH model (`trainer/trainer.yml`).
    - On authorized detection, sends HTTP commands to the ESP32
      (`/action?type=start|stop|emergency|reset`).
-2. **ESP32** (`ESP32-Program/src/main.cpp`) runs two FreeRTOS tasks:
-   - **Core 0** – Wi-Fi + WebServer (receives commands from the PC interface).
-   - **Core 1** – W5500 Ethernet + Modbus TCP server (port 503) that writes the
+2. **ESP32** (`ESP32-Program/App/Src/main.cpp`) runs two FreeRTOS tasks:
+   - **Core 0** — Wi-Fi + WebServer (receives commands from the PC interface).
+   - **Core 1** — W5500 Ethernet + Modbus TCP server (port 503) that writes the
      command coils read by the FX5U PLC and reads status coils from the PLC.
 3. **Mitsubishi FX5U PLC** is the Modbus TCP client that controls the Assembly
    Station actuators based on the ESP32 coils.
@@ -73,10 +73,13 @@ See the [System Architecture](#system-architecture) section for the full block d
 
 ## Quick Start
 
-1. Build and flash the firmware with PlatformIO:
+1. Test and flash the firmware using the curated toolchain (`just` + CMake + Ninja):
    ```bash
    cd ESP32-Program
-   pio run -t upload
+   just test                     # Run host CTest simulation suite
+   just flash-probe-rs           # Flash over SWD/JTAG with probe-rs
+   # Or flash over UART:
+   just flash-esptool port="COM3" bin="firmware.bin"
    ```
 2. Train the face model from the PC interface:
    ```bash
@@ -90,8 +93,8 @@ See the [System Architecture](#system-architecture) section for the full block d
    ```
 4. Configure the PLC (FX5U) Modbus TCP client to connect to the ESP32 Ethernet
    IP (`192.168.1.50:503`) and read/write the coils listed in
-   `ESP32-Program/src/main.cpp`.
+   `ESP32-Program/App/Inc/app_config.hpp`.
 
-## Finieshed Product & Implementation
+## Finished Product & Implementation
 ![Finished PCB](IMG_20260108_125204.jpg)
 ![Implementation](IMG_20260108_125654.jpg)

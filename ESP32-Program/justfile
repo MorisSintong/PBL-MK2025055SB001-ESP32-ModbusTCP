@@ -1,0 +1,37 @@
+# Justfile for ESP32 Modbus TCP Bridge Firmware
+
+set shell := ["powershell", "-NoProfile", "-Command"]
+
+default: test
+
+# Configure host simulation build with Clang & Ninja
+configure:
+    cmake --preset host-test
+
+# Build host simulation targets and test suite
+build:
+    cmake --build --preset host-test
+
+# Run full off-target test suite with CTest
+test: build
+    ctest --preset host-test
+
+# Clean build artifacts
+clean:
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue build-host, build-release
+
+# Flash ESP32-S3 via probe-rs (SWD / JTAG debug probe)
+flash-probe-rs:
+    probe-rs run --chip esp32s3 build-host/ESP32_Modbus_App.exe
+
+# Flash ESP32-S3 via uvx esptool over UART
+flash-esptool port="COM3" bin="firmware.bin":
+    uvx esptool --chip esp32s3 --port {{port}} --baud 921600 write_flash 0x10000 {{bin}}
+
+# Serial monitor via PowerShell SerialPort
+monitor port="COM3" baud="921600":
+    python -m serial.tools.miniterm {{port}} {{baud}}
+
+# Copy compile_commands.json to root for Zed AST indexing
+update-compile-commands:
+    Copy-Item -Force build-host/compile_commands.json ./compile_commands.json

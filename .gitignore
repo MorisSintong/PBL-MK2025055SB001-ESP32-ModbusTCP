@@ -29,6 +29,12 @@ Thumbs.db
 *.dll
 *.so
 *.dylib
+build/
+build-*/
+__cmake_systeminformation/
+compile_commands.json
+.ninja_deps
+.ninja_log
 
 # =========================
 # STM32CubeIDE / Eclipse
