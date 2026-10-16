@@ -2,6 +2,8 @@
 
 #include "app_config.hpp"
 #include "bridge_state.hpp"
+#include <cstdint>
+#include <string>
 
 #if defined(ARDUINO) || defined(ESP_PLATFORM)
 #include <ESPmDNS.h>
@@ -11,12 +13,27 @@
 
 namespace pbl {
 
+struct HttpResponse {
+  int status_code{200};
+  const char *content_type{"text/plain"};
+  std::string body;
+};
+
 class WebServerManager {
 public:
   explicit WebServerManager(BridgeState &state);
 
   void init();
   void update(uint32_t now_ms);
+  bool check_wifi_supervisor(uint32_t now_ms);
+
+  // Platform-independent request handlers (callable on both host and target)
+  HttpResponse handle_get_root() const;
+  HttpResponse handle_get_status() const;
+  HttpResponse handle_get_action(const std::string &type, uint32_t now_us);
+  HttpResponse handle_get_user_detection(const std::string &detected);
+
+  uint32_t get_last_wifi_check_ms() const { return last_wifi_check_ms_; }
 
 #if defined(ARDUINO) || defined(ESP_PLATFORM)
   void handle_root();

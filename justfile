@@ -12,9 +12,14 @@ test:
 build:
     just -f ESP32-Program/justfile -d ESP32-Program build
 
+# Build ESP32 firmware release target
+build-release:
+    just -f ESP32-Program/justfile -d ESP32-Program build-release
+
 # Clean all build artifacts
 clean:
     just -f ESP32-Program/justfile -d ESP32-Program clean
+    if (Test-Path __cmake_systeminformation) { Remove-Item -Recurse -Force __cmake_systeminformation }; if (Test-Path compile_commands.json) { Remove-Item -Force compile_commands.json }
 
 # Copy compile_commands.json to root and ESP32-Program for Zed AST indexing
 update-compile-commands:
@@ -30,11 +35,11 @@ emulate-renode:
     python Emulation/renode_runner.py
 
 # Flash ESP32-S3 over SWD/JTAG using probe-rs
-flash-probe-rs:
-    just -f ESP32-Program/justfile -d ESP32-Program flash-probe-rs
+flash-probe-rs elf="build-release/ESP32_Modbus_App.elf":
+    just -f ESP32-Program/justfile -d ESP32-Program flash-probe-rs elf={{elf}}
 
 # Flash ESP32-S3 over UART using uvx esptool
-flash-esptool port="COM3" bin="firmware.bin":
+flash-esptool port="COM3" bin="build-release/firmware.bin":
     just -f ESP32-Program/justfile -d ESP32-Program flash-esptool port={{port}} bin={{bin}}
 
 # Serial monitor @ 921600 baud

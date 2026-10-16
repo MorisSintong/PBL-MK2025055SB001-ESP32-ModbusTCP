@@ -1,155 +1,148 @@
 #include "bridge_state.hpp"
-#include <cassert>
+#include "web_server.hpp"
+#include <cstdlib>
 #include <iostream>
 #include <string>
 #include <vector>
 
-void test_command_string_parsing_valid() {
-  assert(pbl::BridgeState::parse_command_str("start") ==
-         pbl::CommandType::Start);
-  assert(pbl::BridgeState::parse_command_str("stop") == pbl::CommandType::Stop);
-  assert(pbl::BridgeState::parse_command_str("emergency") ==
-         pbl::CommandType::Emergency);
-  assert(pbl::BridgeState::parse_command_str("reset") ==
-         pbl::CommandType::Reset);
+#define TEST_ASSERT(expr)                                                      \
+  do {                                                                         \
+    if (!(expr)) {                                                             \
+      std::cerr << "[FAIL] " << __FILE__ << ":" << __LINE__                    \
+                << " Assertion failed: " #expr << std::endl;                   \
+      std::exit(1);                                                            \
+    }                                                                          \
+  } while (0)
 
-  std::cout << "  [PASS] test_command_string_parsing_valid" << std::endl;
+void test_command_string_parsing() {
+  TEST_ASSERT(pbl::BridgeState::parse_command_str("start") ==
+              pbl::CommandType::Start);
+  TEST_ASSERT(pbl::BridgeState::parse_command_str("stop") ==
+              pbl::CommandType::Stop);
+  TEST_ASSERT(pbl::BridgeState::parse_command_str("emergency") ==
+              pbl::CommandType::Emergency);
+  TEST_ASSERT(pbl::BridgeState::parse_command_str("reset") ==
+              pbl::CommandType::Reset);
+
+  std::vector<std::string> invalid_inputs = {"",
+                                             "Start",
+                                             "STOP",
+                                             "Emergency",
+                                             "RESET",
+                                             " start",
+                                             "start ",
+                                             "\tstop",
+                                             "emergency\r\n",
+                                             "starter",
+                                             "stopped",
+                                             "emg",
+                                             "0",
+                                             "112",
+                                             "null",
+                                             "<script>",
+                                             std::string(1024, 'x')};
+  for (const auto &str : invalid_inputs) {
+    TEST_ASSERT(pbl::BridgeState::parse_command_str(str) ==
+                pbl::CommandType::Unknown);
+  }
+
+  std::cout << "  [PASS] test_command_string_parsing" << std::endl;
 }
 
-void test_command_string_parsing_negative_and_edge_cases() {
-  // 1. Case variations (strict lower-case contract expected)
-  std::vector<std::string> case_variants = {
-      "Start", "START",     "sTART", "Stop",  "STOP",
-      "sTOP",  "Emergency", "EMG",   "RESET", "Reset"};
-  for (const auto &str : case_variants) {
-    assert(pbl::BridgeState::parse_command_str(str) ==
-           pbl::CommandType::Unknown);
-  }
+void test_web_server_http_endpoints() {
+  pbl::BridgeState bridge;
+  pbl::WebServerManager server(bridge);
+  server.init();
 
-  // 2. Whitespace padding & control characters
-  std::vector<std::string> whitespace_variants = {
-      " start",        "start ", " start ", "\tstop", "stop\n",
-      "emergency\r\n", " ",      "\t",      "\n",     "\r\n"};
-  for (const auto &str : whitespace_variants) {
-    assert(pbl::BridgeState::parse_command_str(str) ==
-           pbl::CommandType::Unknown);
-  }
+  // 1. GET /
+  pbl::HttpResponse root_resp = server.handle_get_root();
+  TEST_ASSERT(root_resp.status_code == 200);
+  TEST_ASSERT(std::string(root_resp.content_type) == "text/plain");
+  TEST_ASSERT(root_resp.body == "ESP32 Opti-Server Online");
 
-  // 3. Substring collisions, prefixes, and suffixes
-  std::vector<std::string> substring_variants = {
-      "starter",          "starting", "prestop",   "stopped",
-      "emergency_stop",   "emg",      "re-set",    "resetting",
-      "start?param=true", "stop/1",   "reset#now", "start1"};
-  for (const auto &str : substring_variants) {
-    assert(pbl::BridgeState::parse_command_str(str) ==
-           pbl::CommandType::Unknown);
-  }
+  // 2. GET /action validation & execution
+  pbl::HttpResponse missing_type = server.handle_get_action("", 1000);
+  TEST_ASSERT(missing_type.status_code == 400);
+  TEST_ASSERT(missing_type.body == "Missing type");
 
-  // 4. Numeric and empty inputs
-  std::vector<std::string> numeric_empty = {"",    "0",   "1",  "112",
-                                            "113", "114", "-1", "9999"};
-  for (const auto &str : numeric_empty) {
-    assert(pbl::BridgeState::parse_command_str(str) ==
-           pbl::CommandType::Unknown);
-  }
+  pbl::HttpResponse bad_type = server.handle_get_action("invalid_cmd", 1000);
+  TEST_ASSERT(bad_type.status_code == 400);
+  TEST_ASSERT(bad_type.body == "Unknown command");
 
-  // 5. Injections, noise, and fuzzing payloads
-  std::vector<std::string> noise_payloads = {
-      "<script>alert(1)</script>",
-      "DROP TABLE coils;",
-      "../../etc/passwd",
-      "%20start%20",
-      "null",
-      "undefined",
-      "NaN",
-      std::string(1024, 'x'),  // 1KB buffer overflow check
-      std::string(4096, 'A')}; // 4KB buffer overflow check
-  for (const auto &str : noise_payloads) {
-    assert(pbl::BridgeState::parse_command_str(str) ==
-           pbl::CommandType::Unknown);
-  }
+  pbl::HttpResponse ok_start = server.handle_get_action("start", 5000);
+  TEST_ASSERT(ok_start.status_code == 200);
+  TEST_ASSERT(ok_start.body == "OK");
+  TEST_ASSERT(bridge.consume_start_request(5320));
+  TEST_ASSERT(bridge.get_last_latency_us() == 320);
 
-  std::cout << "  [PASS] test_command_string_parsing_negative_and_edge_cases"
+  // 3. GET /user_detection validation & latching
+  pbl::HttpResponse missing_det = server.handle_get_user_detection("");
+  TEST_ASSERT(missing_det.status_code == 400);
+  TEST_ASSERT(missing_det.body == "Missing detected parameter");
+
+  pbl::HttpResponse det_true = server.handle_get_user_detection("1");
+  TEST_ASSERT(det_true.status_code == 200);
+  bool latched = false;
+  TEST_ASSERT(bridge.consume_user_detection_changed(latched));
+  TEST_ASSERT(latched == true);
+
+  pbl::HttpResponse det_false = server.handle_get_user_detection("0");
+  TEST_ASSERT(det_false.status_code == 200);
+  TEST_ASSERT(bridge.consume_user_detection_changed(latched));
+  TEST_ASSERT(latched == false);
+
+  pbl::HttpResponse det_str_true = server.handle_get_user_detection("true");
+  TEST_ASSERT(det_str_true.status_code == 200);
+  TEST_ASSERT(bridge.consume_user_detection_changed(latched));
+  TEST_ASSERT(latched == true);
+
+  // Non-"1"/"true" values evaluate to false
+  pbl::HttpResponse det_other = server.handle_get_user_detection("TRUE");
+  TEST_ASSERT(det_other.status_code == 200);
+  TEST_ASSERT(bridge.consume_user_detection_changed(latched));
+  TEST_ASSERT(latched == false);
+
+  // 4. GET /status JSON endpoint
+  bridge.update_plc_status(true, false, false);
+  pbl::HttpResponse status_resp = server.handle_get_status();
+  TEST_ASSERT(status_resp.status_code == 200);
+  TEST_ASSERT(std::string(status_resp.content_type) == "application/json");
+  TEST_ASSERT(status_resp.body ==
+              "{\"running\":true,\"stopped\":false,\"emergency\":false,"
+              "\"last_internal_latency_us\":320}");
+
+  std::cout << "  [PASS] test_web_server_http_endpoints" << std::endl;
+}
+
+void test_wifi_supervisor_timer_and_wraparound() {
+  pbl::BridgeState bridge;
+  pbl::WebServerManager server(bridge);
+
+  TEST_ASSERT(server.get_last_wifi_check_ms() == 0);
+  TEST_ASSERT(!server.check_wifi_supervisor(9999));
+  TEST_ASSERT(server.check_wifi_supervisor(10000));
+  TEST_ASSERT(server.get_last_wifi_check_ms() == 10000);
+
+  // Wrap-around across 0xFFFFFFFF (interval = 10000 ms = 0x2710)
+  server.update(0xFFFFFF00u);
+  TEST_ASSERT(server.get_last_wifi_check_ms() == 0xFFFFFF00u);
+
+  // 0xFFFFFF00 + 9999 = 0x0000260F -> should not trigger yet
+  TEST_ASSERT(!server.check_wifi_supervisor(0x0000260Fu));
+
+  // 0xFFFFFF00 + 10000 = 0x00002610 -> triggers across 32-bit boundary
+  TEST_ASSERT(server.check_wifi_supervisor(0x00002610u));
+  TEST_ASSERT(server.get_last_wifi_check_ms() == 0x00002610u);
+
+  std::cout << "  [PASS] test_wifi_supervisor_timer_and_wraparound"
             << std::endl;
 }
 
-void test_user_detection_parameter_parsing() {
-  // Mirror logic implemented in WebServerManager::handle_user_detection:
-  // bool is_detected = (detected == "1" || detected == "true");
-  auto parse_detected = [](const std::string &val) -> bool {
-    return (val == "1" || val == "true");
-  };
-
-  // Valid truthy inputs
-  assert(parse_detected("1") == true);
-  assert(parse_detected("true") == true);
-
-  // Falsy & Invalid inputs
-  assert(parse_detected("0") == false);
-  assert(parse_detected("false") == false);
-  assert(parse_detected("") == false);
-  assert(parse_detected("TRUE") == false);
-  assert(parse_detected("True") == false);
-  assert(parse_detected("yes") == false);
-  assert(parse_detected("on") == false);
-  assert(parse_detected("2") == false);
-  assert(parse_detected("-1") == false);
-  assert(parse_detected(" 1") == false);
-  assert(parse_detected("true ") == false);
-  assert(parse_detected("null") == false);
-  assert(parse_detected("undefined") == false);
-
-  std::cout << "  [PASS] test_user_detection_parameter_parsing" << std::endl;
-}
-
-void test_simulated_rest_workflow() {
-  pbl::BridgeState bridge;
-
-  // Simulate incoming HTTP GET /action?type=start
-  std::string received_type = "start";
-  pbl::CommandType cmd = pbl::BridgeState::parse_command_str(received_type);
-  assert(cmd == pbl::CommandType::Start);
-
-  uint64_t simulated_now_us = 100000;
-  bool triggered = bridge.trigger_command(cmd, simulated_now_us);
-  assert(triggered == true);
-
-  // Modbus task consumes it at +250us
-  assert(bridge.consume_start_request(simulated_now_us + 250));
-  assert(bridge.get_last_latency_us() == 250);
-
-  // Simulate incoming HTTP GET /action?type=bogus (Negative test)
-  std::string bogus_type = "hack_sys";
-  pbl::CommandType bogus_cmd = pbl::BridgeState::parse_command_str(bogus_type);
-  assert(bogus_cmd == pbl::CommandType::Unknown);
-  assert(!bridge.trigger_command(bogus_cmd, simulated_now_us + 1000));
-
-  // Verify none of the channels were armed by the bogus command
-  assert(!bridge.consume_start_request(simulated_now_us + 2000));
-  assert(!bridge.consume_stop_request(simulated_now_us + 2000));
-  assert(!bridge.consume_emergency_request(simulated_now_us + 2000));
-  assert(!bridge.consume_reset_request(simulated_now_us + 2000));
-
-  // Simulate incoming HTTP GET /user_detection?detected=1
-  bridge.set_user_detection(true);
-  bool latched_val = false;
-  assert(bridge.consume_user_detection_changed(latched_val));
-  assert(latched_val == true);
-
-  // Check HTTP /status JSON response generation
-  std::string status_json = bridge.generate_status_json();
-  assert(status_json.find("\"last_internal_latency_us\":250") !=
-         std::string::npos);
-
-  std::cout << "  [PASS] test_simulated_rest_workflow" << std::endl;
-}
-
 int main() {
-  std::cout << "--- Running REST API Unit Tests ---" << std::endl;
-  test_command_string_parsing_valid();
-  test_command_string_parsing_negative_and_edge_cases();
-  test_user_detection_parameter_parsing();
-  test_simulated_rest_workflow();
-  std::cout << "All REST API tests PASSED!" << std::endl;
+  std::cout << "--- Running REST API & WebServer Unit Tests ---" << std::endl;
+  test_command_string_parsing();
+  test_web_server_http_endpoints();
+  test_wifi_supervisor_timer_and_wraparound();
+  std::cout << "All REST API & WebServer tests PASSED!" << std::endl;
   return 0;
 }

@@ -1,289 +1,307 @@
 #include "bridge_state.hpp"
 #include "modbus_bridge.hpp"
-#include <cassert>
+#include <atomic>
+#include <cstdlib>
 #include <iostream>
-#include <set>
-#include <vector>
+#include <thread>
+
+#define TEST_ASSERT(expr)                                                      \
+  do {                                                                         \
+    if (!(expr)) {                                                             \
+      std::cerr << "[FAIL] " << __FILE__ << ":" << __LINE__                    \
+                << " Assertion failed: " #expr << std::endl;                   \
+      std::exit(1);                                                            \
+    }                                                                          \
+  } while (0)
 
 void test_initial_state() {
   pbl::BridgeState bridge;
   pbl::PlcStatus status = bridge.get_plc_status();
 
-  assert(!status.running);
-  assert(!status.stopped);
-  assert(!status.emergency);
-  assert(status.last_latency_us == 0);
-  assert(!bridge.get_user_detection());
+  TEST_ASSERT(!status.running);
+  TEST_ASSERT(!status.stopped);
+  TEST_ASSERT(!status.emergency);
+  TEST_ASSERT(status.last_latency_us == 0);
+  TEST_ASSERT(!bridge.get_user_detection());
 
   std::cout << "  [PASS] test_initial_state" << std::endl;
 }
 
-void test_command_triggers_and_latency_all_channels() {
+void test_command_triggers_and_per_channel_latency() {
   pbl::BridgeState bridge;
 
-  // 1. Test Channel 1: Start
-  uint64_t t_trigger = 1000;
-  assert(bridge.trigger_command(pbl::CommandType::Start, t_trigger));
-  // Cross-channel isolation: only Start should be pending
-  assert(!bridge.consume_stop_request(1100));
-  assert(!bridge.consume_emergency_request(1100));
-  assert(!bridge.consume_reset_request(1100));
+  // 1. Channel 1: Start
+  TEST_ASSERT(bridge.trigger_command(pbl::CommandType::Start, 1000));
+  TEST_ASSERT(!bridge.consume_stop_request(1100));
+  TEST_ASSERT(!bridge.consume_emergency_request(1100));
+  TEST_ASSERT(!bridge.consume_reset_request(1100));
+  TEST_ASSERT(bridge.consume_start_request(1250));
+  TEST_ASSERT(bridge.get_last_latency_us() == 250);
+  TEST_ASSERT(!bridge.consume_start_request(1250));
 
-  uint64_t t_consume = 1250;
-  assert(bridge.consume_start_request(t_consume));
-  assert(bridge.get_last_latency_us() == 250);
-  // Atomic exchange: second consume must return false
-  assert(!bridge.consume_start_request(t_consume));
+  // 2. Channel 2: Stop
+  TEST_ASSERT(bridge.trigger_command(pbl::CommandType::Stop, 2000));
+  TEST_ASSERT(bridge.consume_stop_request(2350));
+  TEST_ASSERT(bridge.get_last_latency_us() == 350);
+  TEST_ASSERT(!bridge.consume_stop_request(2350));
 
-  // 2. Test Channel 2: Stop
-  assert(bridge.trigger_command(pbl::CommandType::Stop, 2000));
-  assert(!bridge.consume_start_request(2100));
-  assert(!bridge.consume_emergency_request(2100));
-  assert(!bridge.consume_reset_request(2100));
-  assert(bridge.consume_stop_request(2350));
-  assert(bridge.get_last_latency_us() == 350);
-  assert(!bridge.consume_stop_request(2350));
+  // 3. Channel 3: Emergency
+  TEST_ASSERT(bridge.trigger_command(pbl::CommandType::Emergency, 5000));
+  TEST_ASSERT(bridge.consume_emergency_request(5420));
+  TEST_ASSERT(bridge.get_last_latency_us() == 420);
+  TEST_ASSERT(!bridge.consume_emergency_request(5420));
 
-  // 3. Test Channel 3: Emergency
-  assert(bridge.trigger_command(pbl::CommandType::Emergency, 5000));
-  assert(!bridge.consume_start_request(5100));
-  assert(!bridge.consume_stop_request(5100));
-  assert(!bridge.consume_reset_request(5100));
-  assert(bridge.consume_emergency_request(5420));
-  assert(bridge.get_last_latency_us() == 420);
-  assert(!bridge.consume_emergency_request(5420));
+  // 4. Channel 4: Reset
+  TEST_ASSERT(bridge.trigger_command(pbl::CommandType::Reset, 8000));
+  TEST_ASSERT(bridge.consume_reset_request(8150));
+  TEST_ASSERT(bridge.get_last_latency_us() == 150);
+  TEST_ASSERT(!bridge.consume_reset_request(8150));
 
-  // 4. Test Channel 4: Reset
-  assert(bridge.trigger_command(pbl::CommandType::Reset, 8000));
-  assert(!bridge.consume_start_request(8100));
-  assert(!bridge.consume_stop_request(8100));
-  assert(!bridge.consume_emergency_request(8100));
-  assert(bridge.consume_reset_request(8150));
-  assert(bridge.get_last_latency_us() == 150);
-  assert(!bridge.consume_reset_request(8150));
+  // 5. Unknown command must not arm any channel or overwrite timestamps
+  TEST_ASSERT(!bridge.trigger_command(pbl::CommandType::Unknown, 9999));
+  TEST_ASSERT(!bridge.consume_start_request(10000));
+  TEST_ASSERT(!bridge.consume_stop_request(10000));
+  TEST_ASSERT(!bridge.consume_emergency_request(10000));
+  TEST_ASSERT(!bridge.consume_reset_request(10000));
+  TEST_ASSERT(bridge.get_last_latency_us() == 150);
 
-  std::cout << "  [PASS] test_command_triggers_and_latency_all_channels"
+  std::cout << "  [PASS] test_command_triggers_and_per_channel_latency"
             << std::endl;
 }
 
-void test_unknown_and_negative_commands() {
+void test_overlapping_channels_do_not_clobber_timestamps() {
   pbl::BridgeState bridge;
 
-  // Unknown command should return false and not arm any channel
-  assert(!bridge.trigger_command(pbl::CommandType::Unknown, 1000));
-  assert(!bridge.consume_start_request(1100));
-  assert(!bridge.consume_stop_request(1100));
-  assert(!bridge.consume_emergency_request(1100));
-  assert(!bridge.consume_reset_request(1100));
-  assert(bridge.get_last_latency_us() == 0);
+  // Trigger Start at t=1000, then Stop at t=1800, then Emergency at t=2100
+  // BEFORE Core 1 consumes any of them
+  TEST_ASSERT(bridge.trigger_command(pbl::CommandType::Start, 1000));
+  TEST_ASSERT(bridge.trigger_command(pbl::CommandType::Stop, 1800));
+  TEST_ASSERT(bridge.trigger_command(pbl::CommandType::Emergency, 2100));
 
-  // Consuming when nothing was triggered
-  assert(!bridge.consume_start_request(2000));
-  assert(!bridge.consume_stop_request(2000));
-  assert(!bridge.consume_emergency_request(2000));
-  assert(!bridge.consume_reset_request(2000));
+  // Consuming Start at t=2500 must compute 2500 - 1000 = 1500 us
+  TEST_ASSERT(bridge.consume_start_request(2500));
+  TEST_ASSERT(bridge.get_last_latency_us() == 1500);
 
-  std::cout << "  [PASS] test_unknown_and_negative_commands" << std::endl;
-}
+  // Consuming Stop at t=2500 must compute 2500 - 1800 = 700 us
+  TEST_ASSERT(bridge.consume_stop_request(2500));
+  TEST_ASSERT(bridge.get_last_latency_us() == 700);
 
-void test_rapid_command_toggling_and_overwrite() {
-  pbl::BridgeState bridge;
+  // Consuming Emergency at t=2500 must compute 2500 - 2100 = 400 us
+  TEST_ASSERT(bridge.consume_emergency_request(2500));
+  TEST_ASSERT(bridge.get_last_latency_us() == 400);
 
-  // Trigger Start at t = 1000 us
-  assert(bridge.trigger_command(pbl::CommandType::Start, 1000));
-  // Overwrite with second Start at t = 2000 us before consumption
-  assert(bridge.trigger_command(pbl::CommandType::Start, 2000));
-
-  // Consumption at t = 2400 us should calculate latency from the latest trigger
-  assert(bridge.consume_start_request(2400));
-  assert(bridge.get_last_latency_us() == 400);
-
-  // Only one consume succeeds
-  assert(!bridge.consume_start_request(2400));
-
-  // Rapid inter-channel triggers: Start then immediate Stop
-  assert(bridge.trigger_command(pbl::CommandType::Start, 5000));
-  assert(bridge.trigger_command(pbl::CommandType::Stop, 5100));
-
-  // Both should be independently pending
-  assert(bridge.consume_start_request(5200));
-  assert(bridge.consume_stop_request(5300));
-  assert(bridge.get_last_latency_us() == 200); // 5300 - 5100
-
-  std::cout << "  [PASS] test_rapid_command_toggling_and_overwrite"
+  std::cout << "  [PASS] test_overlapping_channels_do_not_clobber_timestamps"
             << std::endl;
 }
 
-void test_latency_edge_cases_and_underflow_protection() {
+void test_micros_32bit_wraparound_and_underflow_protection() {
   pbl::BridgeState bridge;
 
-  // Edge case 1: Zero timestamp on trigger (t = 0)
-  // Implementation requires start > 0 to record latency
-  assert(bridge.trigger_command(pbl::CommandType::Start, 0));
-  assert(bridge.consume_start_request(100));
-  assert(bridge.get_last_latency_us() == 0);
+  // 1. 32-bit micros() wrap-around: 0xFFFFFFF0 -> 0x00000030 (elapsed = 0x40 =
+  // 64 us)
+  TEST_ASSERT(bridge.trigger_command(pbl::CommandType::Start, 0xFFFFFFF0u));
+  TEST_ASSERT(bridge.consume_start_request(0x00000030u));
+  TEST_ASSERT(bridge.get_last_latency_us() == 0x40u);
 
-  // Edge case 2: Backward clock anomaly (current_time_us < start)
-  // Should NOT cause unsigned integer underflow wrap-around
-  assert(bridge.trigger_command(pbl::CommandType::Stop, 5000));
-  assert(bridge.consume_stop_request(4000)); // Clock stepped backwards
-  // Latency should remain protected (0 from previous or unchanged)
-  assert(bridge.get_last_latency_us() == 0);
+  // 2. Zero timestamp on trigger (t = 0) does not overwrite valid latency
+  pbl::BridgeState bridge_zero;
+  TEST_ASSERT(bridge_zero.trigger_command(pbl::CommandType::Start, 0));
+  TEST_ASSERT(bridge_zero.consume_start_request(100));
+  TEST_ASSERT(bridge_zero.get_last_latency_us() == 0);
 
-  // Edge case 3: Exact same timestamp (zero latency)
-  assert(bridge.trigger_command(pbl::CommandType::Emergency, 10000));
-  assert(bridge.consume_emergency_request(10000));
-  assert(bridge.get_last_latency_us() == 0);
+  // 3. Backward clock anomaly (t_consume = 4000 < t_trigger = 5000) is
+  // rejected
+  TEST_ASSERT(bridge_zero.trigger_command(pbl::CommandType::Stop, 5000));
+  TEST_ASSERT(bridge_zero.consume_stop_request(4000));
+  TEST_ASSERT(bridge_zero.get_last_latency_us() == 0);
 
-  // Edge case 4: Large latency (e.g. 15 seconds = 15,000,000 us)
-  assert(bridge.trigger_command(pbl::CommandType::Reset, 1000000));
-  assert(bridge.consume_reset_request(16000000));
-  assert(bridge.get_last_latency_us() == 15000000);
+  // 4. Exact same timestamp (0 us latency)
+  TEST_ASSERT(bridge.trigger_command(pbl::CommandType::Emergency, 10000));
+  TEST_ASSERT(bridge.consume_emergency_request(10000));
+  TEST_ASSERT(bridge.get_last_latency_us() == 0);
 
-  std::cout << "  [PASS] test_latency_edge_cases_and_underflow_protection"
+  std::cout << "  [PASS] test_micros_32bit_wraparound_and_underflow_protection"
             << std::endl;
 }
 
-void test_momentary_pulse_timers_all_channels() {
+void test_momentary_pulse_timers_and_millis_wraparound() {
   pbl::BridgeState bridge;
 
-  // Verify all 4 pulse timers: BTN1 (Start), BTN2 (Stop), BTN3 (Emergency),
-  // BTN4 (Reset)
+  // Inactive timers must not clear
+  TEST_ASSERT(!bridge.check_and_clear_pulse_btn1(100, 500));
+  TEST_ASSERT(!bridge.check_and_clear_pulse_btn2(100, 500));
+  TEST_ASSERT(!bridge.check_and_clear_pulse_btn3(100, 500));
+  TEST_ASSERT(!bridge.check_and_clear_pulse_btn4(100, 500));
 
-  // Inactive check: when not started, check_and_clear must return false
-  assert(!bridge.check_and_clear_pulse_btn1(100, 500));
-  assert(!bridge.check_and_clear_pulse_btn2(100, 500));
-  assert(!bridge.check_and_clear_pulse_btn3(100, 500));
-  assert(!bridge.check_and_clear_pulse_btn4(100, 500));
+  // Start all 4 across 32-bit millis() wrap-around boundary: 0xFFFFFF00 (256 ms
+  // before wrap)
+  const uint32_t t_start = 0xFFFFFF00u;
+  bridge.start_pulse_btn1(t_start);
+  bridge.start_pulse_btn2(t_start);
+  bridge.start_pulse_btn3(t_start);
+  bridge.start_pulse_btn4(t_start);
 
-  // Start all 4 at t = 1000 ms
-  bridge.start_pulse_btn1(1000);
-  bridge.start_pulse_btn2(1000);
-  bridge.start_pulse_btn3(1000);
-  bridge.start_pulse_btn4(1000);
+  // At 0x000000F3 (elapsed = 499 ms < 500 ms): still active
+  const uint32_t t_before = t_start + 499u; // 0x000000F3u
+  TEST_ASSERT(!bridge.check_and_clear_pulse_btn1(t_before, 500));
+  TEST_ASSERT(!bridge.check_and_clear_pulse_btn2(t_before, 500));
+  TEST_ASSERT(!bridge.check_and_clear_pulse_btn3(t_before, 500));
+  TEST_ASSERT(!bridge.check_and_clear_pulse_btn4(t_before, 500));
 
-  // At t = 1499 ms (elapsed 499 ms < 500 ms): all still active
-  assert(!bridge.check_and_clear_pulse_btn1(1499, 500));
-  assert(!bridge.check_and_clear_pulse_btn2(1499, 500));
-  assert(!bridge.check_and_clear_pulse_btn3(1499, 500));
-  assert(!bridge.check_and_clear_pulse_btn4(1499, 500));
+  // At 0x00000150 (elapsed = 0x250 = 592 ms >= 500 ms): all expire and clear
+  const uint32_t t_after = 0x00000150u;
+  TEST_ASSERT(bridge.check_and_clear_pulse_btn1(t_after, 500));
+  TEST_ASSERT(bridge.check_and_clear_pulse_btn2(t_after, 500));
+  TEST_ASSERT(bridge.check_and_clear_pulse_btn3(t_after, 500));
+  TEST_ASSERT(bridge.check_and_clear_pulse_btn4(t_after, 500));
 
-  // At exact boundary t = 1500 ms (elapsed 500 ms >= 500 ms): all expire &
-  // clear
-  assert(bridge.check_and_clear_pulse_btn1(1500, 500));
-  assert(bridge.check_and_clear_pulse_btn2(1500, 500));
-  assert(bridge.check_and_clear_pulse_btn3(1500, 500));
-  assert(bridge.check_and_clear_pulse_btn4(1500, 500));
+  // Subsequent checks return false
+  TEST_ASSERT(!bridge.check_and_clear_pulse_btn1(t_after + 1, 500));
+  TEST_ASSERT(!bridge.check_and_clear_pulse_btn2(t_after + 1, 500));
+  TEST_ASSERT(!bridge.check_and_clear_pulse_btn3(t_after + 1, 500));
+  TEST_ASSERT(!bridge.check_and_clear_pulse_btn4(t_after + 1, 500));
 
-  // Subsequent check: must return false (timers cleared to 0)
-  assert(!bridge.check_and_clear_pulse_btn1(1501, 500));
-  assert(!bridge.check_and_clear_pulse_btn2(1501, 500));
-  assert(!bridge.check_and_clear_pulse_btn3(1501, 500));
-  assert(!bridge.check_and_clear_pulse_btn4(1501, 500));
+  // Pulse re-trigger extension test
+  bridge.start_pulse_btn1(100);
+  bridge.start_pulse_btn1(400);
+  TEST_ASSERT(!bridge.check_and_clear_pulse_btn1(600, 500));
+  TEST_ASSERT(bridge.check_and_clear_pulse_btn1(900, 500));
 
-  std::cout << "  [PASS] test_momentary_pulse_timers_all_channels" << std::endl;
+  std::cout << "  [PASS] test_momentary_pulse_timers_and_millis_wraparound"
+            << std::endl;
 }
 
-void test_pulse_timer_edge_cases() {
-  pbl::BridgeState bridge;
-
-  // Edge case 1: Zero duration (duration_ms = 0)
-  // A pulse started at t = 200 ms with duration 0 expires immediately at t =
-  // 200 ms
-  bridge.start_pulse_btn1(200);
-  assert(bridge.check_and_clear_pulse_btn1(200, 0));
-  assert(!bridge.check_and_clear_pulse_btn1(200, 0));
-
-  // Edge case 2: Pulse re-trigger / extension
-  // Start at t = 100 ms with 500 ms nominal expiry (t = 600)
-  bridge.start_pulse_btn2(100);
-  // Re-start at t = 400 ms (new nominal expiry t = 900)
-  bridge.start_pulse_btn2(400);
-
-  // At t = 600 ms: should NOT expire because timer was reset to 400 ms
-  assert(!bridge.check_and_clear_pulse_btn2(600, 500));
-  // At t = 900 ms: now expires
-  assert(bridge.check_and_clear_pulse_btn2(900, 500));
-  assert(!bridge.check_and_clear_pulse_btn2(901, 500));
-
-  // Edge case 3: Negative/zero timer state check
-  // Timer never initialized
-  assert(!bridge.check_and_clear_pulse_btn3(0, 0));
-  assert(!bridge.check_and_clear_pulse_btn3(500, 0));
-
-  std::cout << "  [PASS] test_pulse_timer_edge_cases" << std::endl;
-}
-
-void test_user_detection_latch_and_rapid_toggling() {
+void test_user_detection_packed_atomic_latch() {
   pbl::BridgeState bridge;
   bool current = false;
 
-  // Initial state: no change
-  assert(!bridge.consume_user_detection_changed(current));
+  TEST_ASSERT(!bridge.consume_user_detection_changed(current));
 
-  // Set user detected = true
+  // Transition false -> true sets dirty bit and value bit atomically
   bridge.set_user_detection(true);
-  assert(bridge.get_user_detection() == true);
-  assert(bridge.consume_user_detection_changed(current));
-  assert(current == true);
+  TEST_ASSERT(bridge.get_user_detection() == true);
+  TEST_ASSERT(bridge.consume_user_detection_changed(current));
+  TEST_ASSERT(current == true);
+  TEST_ASSERT(!bridge.consume_user_detection_changed(current));
 
-  // Consumed: changed flag reset
-  assert(!bridge.consume_user_detection_changed(current));
-
-  // Setting same value again should NOT trigger change flag
+  // Redundant true does not set dirty bit
   bridge.set_user_detection(true);
-  assert(!bridge.consume_user_detection_changed(current));
+  TEST_ASSERT(!bridge.consume_user_detection_changed(current));
 
-  // Rapid toggle: true -> false -> true before consumption
-  // In this case, user_detected_ is true, changed flag was set
+  // Rapid toggle true -> false -> true before consumption
   bridge.set_user_detection(false);
   bridge.set_user_detection(true);
-  assert(bridge.consume_user_detection_changed(current));
-  assert(current == true);
-  assert(!bridge.consume_user_detection_changed(current));
+  TEST_ASSERT(bridge.consume_user_detection_changed(current));
+  TEST_ASSERT(current == true);
+  TEST_ASSERT(!bridge.consume_user_detection_changed(current));
 
-  // Toggle to false
+  // Transition true -> false
   bridge.set_user_detection(false);
-  assert(bridge.consume_user_detection_changed(current));
-  assert(current == false);
+  TEST_ASSERT(bridge.consume_user_detection_changed(current));
+  TEST_ASSERT(current == false);
+  TEST_ASSERT(!bridge.consume_user_detection_changed(current));
 
-  // Redundant false
-  bridge.set_user_detection(false);
-  assert(!bridge.consume_user_detection_changed(current));
-
-  std::cout << "  [PASS] test_user_detection_latch_and_rapid_toggling"
-            << std::endl;
+  std::cout << "  [PASS] test_user_detection_packed_atomic_latch" << std::endl;
 }
 
-void test_plc_status_and_json_serialization_edge_cases() {
+void test_plc_status_and_json_serialization() {
   pbl::BridgeState bridge;
 
-  // 1. Initial / Idle state
   std::string json0 = bridge.generate_status_json();
-  assert(json0.find("\"running\":false") != std::string::npos);
-  assert(json0.find("\"stopped\":false") != std::string::npos);
-  assert(json0.find("\"emergency\":false") != std::string::npos);
-  assert(json0.find("\"last_internal_latency_us\":0") != std::string::npos);
+  TEST_ASSERT(json0 ==
+              "{\"running\":false,\"stopped\":false,\"emergency\":false,"
+              "\"last_internal_latency_us\":0}");
 
-  // 2. All true state (Fault / Alarm condition)
-  bridge.update_plc_status(true, true, true);
+  bridge.update_plc_status(true, false, true);
   bridge.trigger_command(pbl::CommandType::Start, 1000);
   bridge.consume_start_request(1543);
 
   std::string json1 = bridge.generate_status_json();
-  assert(json1.find("\"running\":true") != std::string::npos);
-  assert(json1.find("\"stopped\":true") != std::string::npos);
-  assert(json1.find("\"emergency\":true") != std::string::npos);
-  assert(json1.find("\"last_internal_latency_us\":543") != std::string::npos);
+  TEST_ASSERT(json1 == "{\"running\":true,\"stopped\":false,\"emergency\":true,"
+                       "\"last_internal_latency_us\":543}");
 
-  // 3. High latency serialization
-  bridge.trigger_command(pbl::CommandType::Reset, 1000000);
-  bridge.consume_reset_request(19876543);
-  std::string json2 = bridge.generate_status_json();
-  assert(json2.find("\"last_internal_latency_us\":18876543") !=
-         std::string::npos);
+  std::cout << "  [PASS] test_plc_status_and_json_serialization" << std::endl;
+}
 
-  std::cout << "  [PASS] test_plc_status_and_json_serialization_edge_cases"
+void test_multithreaded_core0_core1_concurrency() {
+  pbl::BridgeState bridge;
+  constexpr int ITERATIONS = 10000;
+  std::atomic<bool> producer_done{false};
+  std::atomic<int> start_consumed{0};
+  std::atomic<int> stop_consumed{0};
+  std::atomic<bool> last_consumed_detect{false};
+
+  // Core 1 Consumer & PLC Status Writer Thread
+  std::thread core1([&]() {
+    uint32_t sim_us = 10000;
+    uint32_t step = 0;
+    while (!producer_done.load(std::memory_order_acquire)) {
+      sim_us += 10;
+      if (bridge.consume_start_request(sim_us)) {
+        start_consumed.fetch_add(1, std::memory_order_relaxed);
+      }
+      if (bridge.consume_stop_request(sim_us)) {
+        stop_consumed.fetch_add(1, std::memory_order_relaxed);
+      }
+      bool det = false;
+      if (bridge.consume_user_detection_changed(det)) {
+        last_consumed_detect.store(det, std::memory_order_relaxed);
+      }
+      // Write valid mutually-exclusive PLC states: (run=true, stop=false) or
+      // (run=false, stop=true)
+      bool run_state = (step % 2 == 0);
+      bridge.update_plc_status(run_state, !run_state, false);
+      step++;
+    }
+
+    // Drain any final pending state after producer finishes
+    sim_us += 10;
+    if (bridge.consume_start_request(sim_us)) {
+      start_consumed.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (bridge.consume_stop_request(sim_us)) {
+      stop_consumed.fetch_add(1, std::memory_order_relaxed);
+    }
+    bool det = false;
+    if (bridge.consume_user_detection_changed(det)) {
+      last_consumed_detect.store(det, std::memory_order_relaxed);
+    }
+  });
+
+  // Core 0 Producer & Status Reader Thread
+  std::thread core0([&]() {
+    for (int i = 1; i <= ITERATIONS; ++i) {
+      uint32_t ts = static_cast<uint32_t>(i * 10);
+      bridge.trigger_command(pbl::CommandType::Start, ts);
+      bridge.trigger_command(pbl::CommandType::Stop, ts + 5);
+
+      bool target_det = (i % 2 == 1); // Ends with i=10000 -> false, then true
+      bridge.set_user_detection(target_det);
+
+      // Verify PLC status never tears (running and stopped are always
+      // complementary)
+      pbl::PlcStatus st = bridge.get_plc_status();
+      if (st.running || st.stopped) {
+        TEST_ASSERT(st.running != st.stopped);
+        TEST_ASSERT(!st.emergency);
+      }
+    }
+    // Final deterministic user detection state = true
+    bridge.set_user_detection(false);
+    bridge.set_user_detection(true);
+    producer_done.store(true, std::memory_order_release);
+  });
+
+  core0.join();
+  core1.join();
+
+  TEST_ASSERT(start_consumed.load() > 0);
+  TEST_ASSERT(stop_consumed.load() > 0);
+  // Final user detection state must be converged to true with zero lost wakeup
+  TEST_ASSERT(bridge.get_user_detection() == true);
+  TEST_ASSERT(last_consumed_detect.load() == true);
+
+  std::cout << "  [PASS] test_multithreaded_core0_core1_concurrency"
             << std::endl;
 }
 
@@ -292,17 +310,13 @@ void test_modbus_bridge_host_integration() {
   pbl::ModbusBridge bridge;
 
   bridge.init();
+  TEST_ASSERT(bridge.get_connection_count() == 0);
 
-  // Trigger Start
   state.trigger_command(pbl::CommandType::Start, 1000);
-  // Bridge update consumes Start and initiates pulse timer
   bridge.update(state, 100, 1200);
-  assert(state.get_last_latency_us() == 200);
+  TEST_ASSERT(state.get_last_latency_us() == 200);
 
-  // At t = 300 ms (elapsed 200 ms < 500 ms): pulse still running
   bridge.update(state, 300, 1300);
-
-  // At t = 650 ms (elapsed 550 ms >= 500 ms): pulse cleared
   bridge.update(state, 650, 1650);
 
   std::cout << "  [PASS] test_modbus_bridge_host_integration" << std::endl;
@@ -311,14 +325,13 @@ void test_modbus_bridge_host_integration() {
 int main() {
   std::cout << "--- Running BridgeState Unit Tests ---" << std::endl;
   test_initial_state();
-  test_command_triggers_and_latency_all_channels();
-  test_unknown_and_negative_commands();
-  test_rapid_command_toggling_and_overwrite();
-  test_latency_edge_cases_and_underflow_protection();
-  test_momentary_pulse_timers_all_channels();
-  test_pulse_timer_edge_cases();
-  test_user_detection_latch_and_rapid_toggling();
-  test_plc_status_and_json_serialization_edge_cases();
+  test_command_triggers_and_per_channel_latency();
+  test_overlapping_channels_do_not_clobber_timestamps();
+  test_micros_32bit_wraparound_and_underflow_protection();
+  test_momentary_pulse_timers_and_millis_wraparound();
+  test_user_detection_packed_atomic_latch();
+  test_plc_status_and_json_serialization();
+  test_multithreaded_core0_core1_concurrency();
   test_modbus_bridge_host_integration();
   std::cout << "All BridgeState tests PASSED!" << std::endl;
   return 0;

@@ -23,9 +23,12 @@ the Assembly Station that:
 | Path | Description |
 | --- | --- |
 | `Electrical-Schematics/` | KiCad project and rendered images of the electrical wiring (ESP32 + W5500 + PLC I/O). |
-| `ESP32-Program/` | Modular C++ firmware for the ESP32-S3 (CMake + Ninja + FreeRTOS + Modbus TCP + Justfile). |
-| `Interface/` | Python (Flask + OpenCV) face-recognition HMI and the web/HTML front-end. |
-| `README.md` | High-level block diagram of the whole system. |
+| `ESP32-Program/` | Modular C++17 firmware for the ESP32-S3 (CMake + Ninja + FreeRTOS + Modbus TCP + CTest host suite). |
+| `Emulation/` | Multi-node hardware emulation (Virtual ESP32 Bridge, Virtual FX5U PLC, Virtual HMI, Renode) & QoS benchmark suite. |
+| `Interface/` | Python (Flask + OpenCV) face-recognition HMI, web front-end, and empirical timing logs (`Timings_log/`). |
+| `justfile` | Root task runner orchestrating firmware builds, CTest unit tests, multi-node QoS emulation, and flashing. |
+| `test_results.md` | Comprehensive test report comparing CTest unit tests, physical hardware baseline logs, and multi-node emulation QoS metrics. |
+| `README.md` | High-level system architecture, repository layout, and quick-start guide. |
 
 ## System Architecture
 ```mermaid
@@ -73,10 +76,11 @@ See the [System Architecture](#system-architecture) section for the full block d
 
 ## Quick Start
 
-1. Test and flash the firmware using the curated toolchain (`just` + CMake + Ninja):
+1. Test, emulate, and flash the firmware using the curated toolchain (`just` + CMake + Ninja):
    ```bash
+   just test                     # Run host CTest unit test suite
+   just emulate-qos samples="50" # Run multi-node SCADA & PLC QoS emulation
    cd ESP32-Program
-   just test                     # Run host CTest simulation suite
    just flash-probe-rs           # Flash over SWD/JTAG with probe-rs
    # Or flash over UART:
    just flash-esptool port="COM3" bin="firmware.bin"

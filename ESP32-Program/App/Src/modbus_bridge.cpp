@@ -1,5 +1,6 @@
 #include "logger.hpp"
 #include "modbus_bridge.hpp"
+#include <cstdio>
 
 namespace pbl {
 
@@ -9,7 +10,11 @@ uint32_t ModbusBridge::connection_count_ = 0;
 
 bool ModbusBridge::on_client_connect(IPAddress ip) {
   connection_count_++;
-  Logger::log("[Modbus] >>> Client CONNECTED from: " + ip.toString());
+  char log_buf[128];
+  std::snprintf(log_buf, sizeof(log_buf),
+                "[Modbus] >>> Client CONNECTED from: %s",
+                ip.toString().c_str());
+  Logger::log(log_buf);
   return true; // Accept connection
 }
 

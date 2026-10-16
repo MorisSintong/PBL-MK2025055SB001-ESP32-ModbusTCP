@@ -2,6 +2,7 @@
 
 #include "app_config.hpp"
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -27,13 +28,18 @@ public:
   static constexpr uint8_t STATUS_FLAG_STOPPED = 0x02;
   static constexpr uint8_t STATUS_FLAG_EMERGENCY = 0x04;
 
+  static constexpr uint8_t USER_DETECT_VAL_BIT = 0x01;
+  static constexpr uint8_t USER_DETECT_DIRTY_BIT = 0x02;
+
+  static constexpr size_t CHANNEL_COUNT = 4;
+
   BridgeState() = default;
 
   // Trigger command from Web Server (Core 0)
   bool trigger_command(CommandType cmd, uint32_t timestamp_us);
   static CommandType parse_command_str(const std::string &cmd_str);
 
-  // User detection from Face Recognition
+  // User detection from Face Recognition (packed atomic value + dirty bit)
   void set_user_detection(bool detected);
   bool get_user_detection() const;
   bool consume_user_detection_changed(bool &current_val);
@@ -80,12 +86,12 @@ private:
   std::atomic<bool> req_btn3_{false};
   std::atomic<bool> req_btn4_{false};
 
-  // User detection state
-  std::atomic<bool> user_detected_{false};
-  std::atomic<bool> user_detected_changed_{false};
+  // Packed user detection state: bit 0 = detected value, bit 1 = changed/dirty
+  std::atomic<uint8_t> user_detect_mask_{0};
 
-  // Latency timestamps (32-bit native atomic for Xtensa LX7)
-  std::atomic<uint32_t> action_start_time_us_{0};
+  // Per-channel start timestamps & last recorded latency (32-bit native atomic)
+  std::atomic<uint32_t> action_start_time_us_[CHANNEL_COUNT]{
+      {0}, {0}, {0}, {0}};
   std::atomic<uint32_t> last_internal_latency_us_{0};
 
   // Atomic bitmask for PLC status (eliminates state tearing across cores)
@@ -97,7 +103,7 @@ private:
   PulseTimer timer_btn3_;
   PulseTimer timer_btn4_;
 
-  void record_latency(uint32_t current_time_us);
+  void record_latency(size_t channel_idx, uint32_t current_time_us);
 };
 
 } // namespace pbl

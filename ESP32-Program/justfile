@@ -10,7 +10,13 @@ configure:
 
 # Build host simulation targets and test suite
 build:
+    if (!(Test-Path build-host/build.ninja)) { cmake --preset host-test }
     cmake --build --preset host-test
+
+# Configure and build optimized release target
+build-release:
+    if (!(Test-Path build-release/build.ninja)) { cmake --preset release }
+    cmake --build --preset release
 
 # Run full off-target test suite with CTest
 test: build
@@ -18,20 +24,22 @@ test: build
 
 # Clean build artifacts
 clean:
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue build-host, build-release
+    if (Test-Path build-host) { Remove-Item -Recurse -Force build-host }; if (Test-Path build-release) { Remove-Item -Recurse -Force build-release }; if (Test-Path compile_commands.json) { Remove-Item -Force compile_commands.json }
 
 # Flash ESP32-S3 via probe-rs (SWD / JTAG debug probe)
-flash-probe-rs:
-    probe-rs run --chip esp32s3 build-host/ESP32_Modbus_App.exe
+flash-probe-rs elf="build-release/ESP32_Modbus_App.elf":
+    if (!(Test-Path "{{elf}}")) { Write-Error "Target ELF '{{elf}}' not found. Provide a cross-compiled ESP32-S3 ELF image."; exit 1 }
+    probe-rs run --chip esp32s3 {{elf}}
 
 # Flash ESP32-S3 via uvx esptool over UART
-flash-esptool port="COM3" bin="firmware.bin":
+flash-esptool port="COM3" bin="build-release/firmware.bin":
+    if (!(Test-Path "{{bin}}")) { Write-Error "Target binary '{{bin}}' not found."; exit 1 }
     uvx esptool --chip esp32s3 --port {{port}} --baud 921600 write_flash 0x10000 {{bin}}
 
-# Serial monitor via PowerShell SerialPort
+# Serial monitor via pyserial miniterm
 monitor port="COM3" baud="921600":
     python -m serial.tools.miniterm {{port}} {{baud}}
 
-# Copy compile_commands.json to root for Zed AST indexing
-update-compile-commands:
+# Copy compile_commands.json to ESP32-Program root for Zed AST indexing
+update-compile-commands: build
     Copy-Item -Force build-host/compile_commands.json ./compile_commands.json

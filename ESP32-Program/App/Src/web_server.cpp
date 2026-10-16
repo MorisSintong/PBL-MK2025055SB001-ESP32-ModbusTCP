@@ -1,9 +1,63 @@
 #include "logger.hpp"
 #include "web_server.hpp"
+#include <cstdio>
 
 namespace pbl {
 
 WebServerManager::WebServerManager(BridgeState &state) : state_(state) {}
+
+HttpResponse WebServerManager::handle_get_root() const {
+  return {200, "text/plain", "ESP32 Opti-Server Online"};
+}
+
+HttpResponse WebServerManager::handle_get_status() const {
+  return {200, "application/json", state_.generate_status_json()};
+}
+
+HttpResponse WebServerManager::handle_get_action(const std::string &type,
+                                                 uint32_t now_us) {
+  if (type.empty()) {
+    Logger::log("[Web] Error: Missing type argument");
+    return {400, "text/plain", "Missing type"};
+  }
+
+  Logger::log("[Web] Received command: " + type);
+  CommandType cmd = BridgeState::parse_command_str(type);
+  if (cmd == CommandType::Unknown) {
+    return {400, "text/plain", "Unknown command"};
+  }
+
+  state_.trigger_command(cmd, now_us);
+  return {200, "text/plain", "OK"};
+}
+
+HttpResponse
+WebServerManager::handle_get_user_detection(const std::string &detected) {
+  if (detected.empty()) {
+    return {400, "text/plain", "Missing detected parameter"};
+  }
+
+  bool is_detected = (detected == "1" || detected == "true");
+  state_.set_user_detection(is_detected);
+  Logger::log(std::string("[Web] User detection: ") +
+              (is_detected ? "DETECTED" : "NOT DETECTED"));
+  return {200, "text/plain", "OK"};
+}
+
+bool WebServerManager::check_wifi_supervisor(uint32_t now_ms) {
+  if ((now_ms - last_wifi_check_ms_) >= config::WIFI_RECONNECT_INTERVAL_MS) {
+    last_wifi_check_ms_ = now_ms;
+#if defined(ARDUINO) || defined(ESP_PLATFORM)
+    if (WiFi.status() != WL_CONNECTED) {
+      Logger::log("[Core 0] Wi-Fi lost. Reconnecting...");
+      WiFi.disconnect();
+      WiFi.reconnect();
+    }
+#endif
+    return true;
+  }
+  return false;
+}
 
 #if defined(ARDUINO) || defined(ESP_PLATFORM)
 
@@ -38,7 +92,10 @@ void WebServerManager::init() {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Logger::log("[Core 0] Wi-Fi Connected. IP: " + WiFi.localIP().toString());
+    char ip_buf[128];
+    std::snprintf(ip_buf, sizeof(ip_buf), "[Core 0] Wi-Fi Connected. IP: %s",
+                  WiFi.localIP().toString().c_str());
+    Logger::log(ip_buf);
   } else {
     Logger::log("[Core 0] Wi-Fi initial connection timed out. Will retry in "
                 "background supervisor.");
@@ -60,70 +117,38 @@ void WebServerManager::init() {
 }
 
 void WebServerManager::handle_root() {
+  HttpResponse resp = handle_get_root();
   server_.sendHeader("Access-Control-Allow-Origin", "*");
-  server_.send(200, "text/plain", "ESP32 Opti-Server Online");
+  server_.send(resp.status_code, resp.content_type, resp.body.c_str());
 }
 
 void WebServerManager::handle_status() {
-  std::string json = state_.generate_status_json();
+  HttpResponse resp = handle_get_status();
   server_.sendHeader("Access-Control-Allow-Origin", "*");
-  server_.send(200, "application/json", json.c_str());
+  server_.send(resp.status_code, resp.content_type, resp.body.c_str());
 }
 
 void WebServerManager::handle_action() {
-  server_.sendHeader("Access-Control-Allow-Origin", "*");
-
-  if (!server_.hasArg("type")) {
-    server_.send(400, "text/plain", "Missing type");
-    Logger::log("[Web] Error: Missing type argument");
-    return;
-  }
-
-  String type = server_.arg("type");
-  std::string type_str = type.c_str();
-  Logger::log("[Web] Received command: " + type_str);
-
-  CommandType cmd = BridgeState::parse_command_str(type_str);
-  if (cmd == CommandType::Unknown) {
-    server_.send(400, "text/plain", "Unknown command");
-    return;
-  }
-
+  std::string type_str =
+      server_.hasArg("type") ? std::string(server_.arg("type").c_str()) : "";
   uint32_t now_us = static_cast<uint32_t>(micros());
-  state_.trigger_command(cmd, now_us);
-  server_.send(200, "text/plain", "OK");
+  HttpResponse resp = handle_get_action(type_str, now_us);
+  server_.sendHeader("Access-Control-Allow-Origin", "*");
+  server_.send(resp.status_code, resp.content_type, resp.body.c_str());
 }
 
 void WebServerManager::handle_user_detection() {
+  std::string detected_str = server_.hasArg("detected")
+                                 ? std::string(server_.arg("detected").c_str())
+                                 : "";
+  HttpResponse resp = handle_get_user_detection(detected_str);
   server_.sendHeader("Access-Control-Allow-Origin", "*");
-
-  if (!server_.hasArg("detected")) {
-    server_.send(400, "text/plain", "Missing detected parameter");
-    return;
-  }
-
-  String detected = server_.arg("detected");
-  bool is_detected = (detected == "1" || detected == "true");
-
-  state_.set_user_detection(is_detected);
-  Logger::log(std::string("[Web] User detection: ") +
-              (is_detected ? "DETECTED" : "NOT DETECTED"));
-
-  server_.send(200, "text/plain", "OK");
+  server_.send(resp.status_code, resp.content_type, resp.body.c_str());
 }
 
 void WebServerManager::update(uint32_t now_ms) {
   server_.handleClient();
-
-  // Auto-reconnect supervision logic
-  if ((now_ms - last_wifi_check_ms_) >= config::WIFI_RECONNECT_INTERVAL_MS) {
-    last_wifi_check_ms_ = now_ms;
-    if (WiFi.status() != WL_CONNECTED) {
-      Logger::log("[Core 0] Wi-Fi lost. Reconnecting...");
-      WiFi.disconnect();
-      WiFi.reconnect();
-    }
-  }
+  check_wifi_supervisor(now_ms);
 }
 
 #else // Host / Simulation mode
@@ -132,7 +157,9 @@ void WebServerManager::init() {
   Logger::log("WebServerManager (Host Mock) initialized");
 }
 
-void WebServerManager::update(uint32_t /*now_ms*/) {}
+void WebServerManager::update(uint32_t now_ms) {
+  check_wifi_supervisor(now_ms);
+}
 
 #endif
 

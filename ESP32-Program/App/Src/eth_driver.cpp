@@ -4,9 +4,8 @@
 
 namespace pbl {
 
-#if defined(ARDUINO) || defined(ESP_PLATFORM)
-
 void EthernetDriver::init() {
+#if defined(ARDUINO) || defined(ESP_PLATFORM)
   Logger::log("Initializing W5500 SPI Ethernet...");
 
   SPI.begin(config::ETH_SCLK_PIN, config::ETH_MISO_PIN, config::ETH_MOSI_PIN);
@@ -27,27 +26,43 @@ void EthernetDriver::init() {
 
   Ethernet.begin(const_cast<uint8_t *>(config::ETH_MAC), ip, dns, gw, subnet);
 
-  Logger::log("Ethernet IP: " + Ethernet.localIP().toString());
+  char ip_buf[128];
+  std::snprintf(ip_buf, sizeof(ip_buf), "Ethernet IP: %s",
+                Ethernet.localIP().toString().c_str());
+  Logger::log(ip_buf);
   Logger::log("Ethernet MAC: 02:AB:CD:01:02:03");
+#else
+  Logger::log("EthernetDriver (Host Mock) initialized");
+#endif
 }
 
-void EthernetDriver::check_link_status(uint32_t now_ms) {
+void EthernetDriver::update(uint32_t now_ms, uint32_t active_connections) {
+  check_link_status(now_ms);
+  check_sockets_and_maintain(now_ms, active_connections);
+}
+
+bool EthernetDriver::check_link_status(uint32_t now_ms) {
   if ((now_ms - last_link_check_ms_) >= config::ETH_LINK_CHECK_INTERVAL_MS) {
     last_link_check_ms_ = now_ms;
+#if defined(ARDUINO) || defined(ESP_PLATFORM)
     EthernetLinkStatus status = Ethernet.linkStatus();
     if (status == LinkOFF) {
       Logger::log("[Core 1] !!! Ethernet Link OFF !!!");
     } else if (status == Unknown) {
       Logger::log("[Core 1] Ethernet Link: Unknown");
     }
+#endif
+    return true;
   }
+  return false;
 }
 
-void EthernetDriver::check_sockets_and_maintain(uint32_t now_ms,
+bool EthernetDriver::check_sockets_and_maintain(uint32_t now_ms,
                                                 uint32_t active_connections) {
   if ((now_ms - last_socket_check_ms_) >=
       config::ETH_SOCKET_CHECK_INTERVAL_MS) {
     last_socket_check_ms_ = now_ms;
+#if defined(ARDUINO) || defined(ESP_PLATFORM)
     Ethernet.maintain(); // Periodic DHCP / socket cleanup
 
     // Zero dynamic heap allocation: format into fixed stack buffer
@@ -68,20 +83,12 @@ void EthernetDriver::check_sockets_and_maintain(uint32_t now_ms,
                               "%d:%02X ", i, status);
     }
     Logger::log(sock_buf);
-  }
-}
-
-#else // Host / Simulation mode
-
-void EthernetDriver::init() {
-  Logger::log("EthernetDriver (Host Mock) initialized");
-}
-
-void EthernetDriver::check_link_status(uint32_t /*now_ms*/) {}
-
-void EthernetDriver::check_sockets_and_maintain(
-    uint32_t /*now_ms*/, uint32_t /*active_connections*/) {}
-
+#else
+    (void)active_connections;
 #endif
+    return true;
+  }
+  return false;
+}
 
 } // namespace pbl

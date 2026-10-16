@@ -9,7 +9,7 @@ Firmware for the **ESP32-S3 DevKitC-1** acting as a high-performance protocol br
 
 ## Architecture & Directory Layout
 
-Refactored from legacy PlatformIO into a modern, modular CMake + Ninja embedded architecture with dual-targeting host simulation capabilities:
+Built on a modular CMake + Ninja embedded C++17 architecture with dual-targeting host simulation and CTest verification capabilities:
 
 ```text
 ESP32-Program/

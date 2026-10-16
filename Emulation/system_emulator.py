@@ -136,10 +136,11 @@ class VirtualESP32Bridge:
 
             def do_GET(self):
                 parsed = urllib.parse.urlparse(self.path)
-                params = urllib.parse.parse_qs(parsed.query)
+                params = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
 
                 if parsed.path == "/":
                     self.send_response(200)
+                    self.send_header("Access-Control-Allow-Origin", "*")
                     self.send_header("Content-Type", "text/plain")
                     self.end_headers()
                     self.wfile.write(b"ESP32 Opti-Server Online")
@@ -157,13 +158,20 @@ class VirtualESP32Bridge:
                         "last_internal_latency_us": bridge.last_internal_latency_us,
                     }
                     self.send_response(200)
+                    self.send_header("Access-Control-Allow-Origin", "*")
                     self.send_header("Content-Type", "application/json")
                     self.end_headers()
                     self.wfile.write(json.dumps(payload).encode("utf-8"))
 
                 elif parsed.path == "/action":
-                    cmd = params.get("type", [""])[0]
-                    if cmd in ("start", "stop", "emergency", "reset"):
+                    cmd = params.get("type", [None])[0]
+                    if cmd is None or cmd == "":
+                        self.send_response(400)
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.send_header("Content-Type", "text/plain")
+                        self.end_headers()
+                        self.wfile.write(b"Missing type")
+                    elif cmd in ("start", "stop", "emergency", "reset"):
                         now_us = int(time.perf_counter() * 1_000_000)
                         with bridge.cmd_lock:
                             bridge.action_start_time_us = now_us
@@ -173,27 +181,38 @@ class VirtualESP32Bridge:
                         bridge._process_pending_action()
 
                         self.send_response(200)
+                        self.send_header("Access-Control-Allow-Origin", "*")
                         self.send_header("Content-Type", "text/plain")
                         self.end_headers()
                         self.wfile.write(b"OK")
                     else:
                         self.send_response(400)
+                        self.send_header("Access-Control-Allow-Origin", "*")
                         self.send_header("Content-Type", "text/plain")
                         self.end_headers()
                         self.wfile.write(b"Unknown command")
 
                 elif parsed.path == "/user_detection":
-                    detected = params.get("detected", ["0"])[0]
-                    is_detected = detected in ("1", "true")
-                    with bridge.coil_lock:
-                        bridge.coils[COIL_USER_DETECTED] = is_detected
+                    if "detected" not in params:
+                        self.send_response(400)
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.send_header("Content-Type", "text/plain")
+                        self.end_headers()
+                        self.wfile.write(b"Missing detected parameter")
+                    else:
+                        detected = params.get("detected", ["0"])[0]
+                        is_detected = detected in ("1", "true")
+                        with bridge.coil_lock:
+                            bridge.coils[COIL_USER_DETECTED] = is_detected
 
-                    self.send_response(200)
-                    self.send_header("Content-Type", "text/plain")
-                    self.end_headers()
-                    self.wfile.write(b"OK")
+                        self.send_response(200)
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.send_header("Content-Type", "text/plain")
+                        self.end_headers()
+                        self.wfile.write(b"OK")
                 else:
                     self.send_response(404)
+                    self.send_header("Access-Control-Allow-Origin", "*")
                     self.end_headers()
 
         socketserver.TCPServer.allow_reuse_address = True
@@ -225,6 +244,16 @@ class VirtualESP32Bridge:
         target_coil = coil_map.get(cmd)
         if target_coil:
             with self.coil_lock:
+                # Clear conflicting momentary command coils before asserting new pulse
+                for c_addr in (
+                    COIL_BTN_START,
+                    COIL_BTN_STOP,
+                    COIL_BTN_EMG,
+                    COIL_BTN_RESET,
+                ):
+                    if c_addr != target_coil:
+                        self.coils[c_addr] = False
+                        self.pulse_timers.pop(c_addr, None)
                 self.coils[target_coil] = True
                 self.pulse_timers[target_coil] = now_s
 
@@ -345,6 +374,8 @@ class VirtualMitsubishiPLC:
         self.running = False
         self.thread: Optional[threading.Thread] = None
 
+        self.emergency_latched: bool = False
+        self.machine_running: bool = False
         self.last_command_reaction_time_ms: float = 0.0
         self.scan_count = 0
 
@@ -402,8 +433,8 @@ class VirtualMitsubishiPLC:
                 time.sleep(0.05)
                 continue
 
-        machine_running = False
-        machine_emergency = False
+        self.machine_running = False
+        self.emergency_latched = False
 
         while self.running:
             t_scan_start = time.perf_counter()
@@ -416,14 +447,15 @@ class VirtualMitsubishiPLC:
                 btn_stop = coils[1]
                 btn_emg = coils[2]
                 btn_reset = coils[3]
-                user_auth = coils[4]
+                user_ok = coils[4]
 
                 t_react_start = time.perf_counter()
 
-                # PLC Ladder Logic Simulation
+                # Safety-Dominant PLC Ladder Logic Evaluation Order:
+                # 1. Emergency Stop dominates all other inputs and latches fault
                 if btn_emg:
-                    machine_running = False
-                    machine_emergency = True
+                    self.emergency_latched = True
+                    self.machine_running = False
                     self._write_coil(sock, COIL_STS_RUNNING, False)
                     self._write_coil(sock, COIL_STS_STOPPED, True)
                     self._write_coil(sock, COIL_STS_EMG, True)
@@ -431,28 +463,34 @@ class VirtualMitsubishiPLC:
                         time.perf_counter() - t_react_start
                     ) * 1000
 
-                elif btn_reset:
-                    machine_emergency = False
+                # 2. Fault Reset unlatches emergency while keeping machine stopped
+                elif btn_reset and self.emergency_latched:
+                    self.emergency_latched = False
+                    self.machine_running = False
+                    self._write_coil(sock, COIL_STS_RUNNING, False)
+                    self._write_coil(sock, COIL_STS_STOPPED, True)
                     self._write_coil(sock, COIL_STS_EMG, False)
                     self.last_command_reaction_time_ms = (
                         time.perf_counter() - t_react_start
                     ) * 1000
 
-                elif btn_start and user_auth and not machine_emergency:
-                    machine_running = True
-                    self._write_coil(sock, COIL_STS_RUNNING, True)
-                    self._write_coil(sock, COIL_STS_STOPPED, False)
-                    self.last_command_reaction_time_ms = (
-                        time.perf_counter() - t_react_start
-                    ) * 1000
-
-                elif btn_stop:
-                    machine_running = False
-                    self._write_coil(sock, COIL_STS_RUNNING, False)
-                    self._write_coil(sock, COIL_STS_STOPPED, True)
-                    self.last_command_reaction_time_ms = (
-                        time.perf_counter() - t_react_start
-                    ) * 1000
+                # 3. Normal operation when not in emergency: STOP always dominates START
+                elif not self.emergency_latched:
+                    if btn_stop:
+                        self.machine_running = False
+                        self._write_coil(sock, COIL_STS_RUNNING, False)
+                        self._write_coil(sock, COIL_STS_STOPPED, True)
+                        self.last_command_reaction_time_ms = (
+                            time.perf_counter() - t_react_start
+                        ) * 1000
+                    elif btn_start:
+                        if user_ok:
+                            self.machine_running = True
+                            self._write_coil(sock, COIL_STS_RUNNING, True)
+                            self._write_coil(sock, COIL_STS_STOPPED, False)
+                            self.last_command_reaction_time_ms = (
+                                time.perf_counter() - t_react_start
+                            ) * 1000
 
             except Exception:
                 time.sleep(0.05)
@@ -501,10 +539,9 @@ class VirtualHMIClient:
             pass
 
         rec = TimingRecord(
-            timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(
-                timespec="milliseconds"
-            )
-            + "Z",
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z"),
             source="WebApp",
             command=cmd,
             duration_ms=round(duration_ms, 2),
@@ -541,16 +578,16 @@ def compute_qos_statistics(records: List[TimingRecord]) -> Dict[str, float]:
     if not durations:
         return {}
 
-    durations.sort()
     n = len(durations)
     mean_val = sum(durations) / n
     variance = sum((x - mean_val) ** 2 for x in durations) / n
     stddev = math.sqrt(variance)
 
-    # Jitter: mean difference between consecutive round trip times
+    # Jitter: mean difference between consecutive chronological round trip times
     jitters = [abs(durations[i] - durations[i - 1]) for i in range(1, n)]
     mean_jitter = (sum(jitters) / len(jitters)) if jitters else 0.0
 
+    durations.sort()
     p50 = durations[int(n * 0.50)]
     p95 = durations[min(n - 1, int(n * 0.95))]
     p99 = durations[min(n - 1, int(n * 0.99))]
@@ -606,7 +643,7 @@ def run_emulation_benchmark(sample_count: int = 40):
         time.sleep(0.05)  # PLC scan execution window
         st = hmi.get_status()
         print(
-            f"  Command: {c:<10} | RTT: {rec.duration_ms:5.2f} ms | ESP32 Latency: {rec.internal_latency_us:4d} us | PLC Running: {st.get('running')}"
+            f"  Command: {c:<10} | RTT: {rec.duration_ms:5.2f} ms | ESP32 Latency: {rec.internal_latency_us:4d} us | PLC Running: {st.get('running')} | EMG: {st.get('emergency')}"
         )
         time.sleep(0.05)
 
@@ -706,12 +743,37 @@ def run_emulation_benchmark(sample_count: int = 40):
     print("=" * 70)
 
 
-if __name__ == "__main__":
-    arg = sys.argv[1] if len(sys.argv) > 1 else "40"
+def _parse_cli_args(argv: List[str]) -> int:
+    if any(a in ("-h", "--help") for a in argv[1:]):
+        print(
+            "Usage: python Emulation/system_emulator.py [sample_count | samples=<N>]\n"
+            "\n"
+            "Runs the multi-node SCADA hardware emulation (Virtual ESP32 Bridge, Virtual\n"
+            "Mitsubishi FX5U PLC, and Virtual Face-Recognition HMI) and writes QoS\n"
+            "telemetry CSVs.\n"
+            "\n"
+            "Arguments:\n"
+            "  sample_count   Number of Phase 3 stress-test iterations (default: 40)\n"
+            "  -h, --help     Show this help message and exit"
+        )
+        sys.exit(0)
+
+    if len(argv) <= 1:
+        return 40
+
+    arg = argv[1]
     if "=" in arg:
         arg = arg.split("=", 1)[1]
     try:
-        count = int(arg)
+        return max(1, int(arg))
     except ValueError:
-        count = 40
+        print(
+            f"Invalid sample count: '{argv[1]}'. Expected positive integer.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+
+if __name__ == "__main__":
+    count = _parse_cli_args(sys.argv)
     run_emulation_benchmark(count)

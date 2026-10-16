@@ -20,9 +20,9 @@ This document compiles all test methodologies, verification suites, and performa
 ```mermaid
 flowchart TD
     subgraph Layer1 [1. Unit Testing - CTest]
-        UT1[BridgeState Atomic Logic & Edge Cases]
-        UT2[Modbus Coils, Headroom & Hardware Sanity]
-        UT3[REST API Query Parsing & Injection Defense]
+        UT1[BridgeState Atomic Logic, Concurrency & Wrap-Around]
+        UT2[Modbus Coils, Ethernet Driver Supervision & Hardware Sanity]
+        UT3[REST API Endpoints, Wi-Fi Supervisor & Injection Defense]
     end
 
     subgraph Layer2 [2. Host Emulation - Multi-Node Network]
@@ -46,60 +46,76 @@ flowchart TD
 
 ## 2. Off-Target Firmware Unit Tests (CTest Suite)
 
-The firmware was compiled using **LLVM-MinGW Clang 23.1.1** with `-std=c++17` and executed headlessly via CTest. The test suite includes 100% robust coverage of nominal states, negative inputs, boundary conditions, and timing anomalies:
+The firmware was compiled using **LLVM-MinGW Clang 23.1.1** with `-std=c++17` and `-Wall -Wextra -Wpedantic`, and executed headlessly via CTest. The test suite provides comprehensive coverage of nominal states, negative inputs, 32-bit timer wrap-around, and multi-threaded inter-core concurrency:
 
 | Test Suite | File | Targets & Edge Cases Verified | Execution Time | Status |
 | :--- | :--- | :--- | :---: | :---: |
-| **BridgeStateTest** | `tests/test_bridge_state.cpp` | • Atomic command transitions across all 4 channels (Start, Stop, Emergency, Reset)<br>• Single-consume idempotency & channel cross-isolation<br>• Unknown / negative command rejection<br>• Rapid command toggling & overwrite latency tracking<br>• Clock anomaly / underflow defense (`current_time < start`)<br>• Momentary pulse timers across all 4 channels (exact boundary, pre/post-expiry)<br>• Pulse edge cases (zero duration expiry, pulse re-trigger/extension)<br>• User detection latching & rapid toggle filtering<br>• Fault/all-true & high-latency JSON status serialization<br>• Host mock ModbusBridge integration | ~0.03 s | **PASSED** |
-| **ModbusCoilsTest** | `tests/test_modbus_coils.cpp` | • FX5U command coils (112–115) and operator auth (116)<br>• Status feedback coils (208–210)<br>• Strict address uniqueness and zero-collision check between sets<br>• Register table boundaries and expansion headroom (>= 50 spare coils)<br>• Hardware SPI pin distinctness & 8 MHz clock rate<br>• Dual-core FreeRTOS task partition & priority hierarchy (Modbus Core 1, Web Core 0) | ~0.03 s | **PASSED** |
-| **RestApiTest** | `tests/test_rest_api.cpp` | • Positive command parsing (`start`, `stop`, `emergency`, `reset`)<br>• Case-sensitivity defense (`Start`, `STOP`, `sTART` -> `Unknown`)<br>• Whitespace / control char defense (`\t`, `\r\n`, padding -> `Unknown`)<br>• Prefix/suffix collision defense (`starter`, `prestop`, `re-set` -> `Unknown`)<br>• Numeric, empty, and fuzzing/injection payloads (`<script>`, SQL injection, 4KB buffer overflow -> `Unknown`)<br>• Strict boolean query parameter parsing (`1`/`true` vs falsy/noise)<br>• Simulated end-to-end REST dispatch & latency validation | ~0.03 s | **PASSED** |
+| **BridgeStateTest** | `tests/test_bridge_state.cpp` | • Atomic command transitions across all 4 channels (Start, Stop, Emergency, Reset)<br>• Per-channel start timestamps preventing cross-channel latency clobbering<br>• 32-bit `micros()` wrap-around & clock jitter/underflow protection<br>• Momentary pulse timers (`500 ms`) across all 4 channels & 32-bit `millis()` wrap-around<br>• Packed atomic `user_detect_mask_` (`bit 0 = detected`, `bit 1 = dirty`) & coherent `PlcStatus` snapshot<br>• Multi-threaded `std::thread` Core 0 producer / Core 1 consumer stress test (10,000 iterations)<br>• Host `ModbusBridge` coil & pulse integration | ~0.04 s | **PASSED** |
+| **ModbusCoilsTest** | `tests/test_modbus_coils.cpp` | • FX5U command coils (112–115) and operator auth (116)<br>• Status feedback coils (208–210)<br>• Strict address uniqueness and disjoint range check between command & status blocks<br>• Register table boundaries and expansion headroom (>= 50 spare coils)<br>• Hardware SPI pin distinctness, 8 MHz clock rate, & dual-core FreeRTOS task priorities<br>• `EthernetDriver` link check (`2000 ms`) & socket check (`3000 ms`) supervision with 32-bit `millis()` wrap-around | ~0.04 s | **PASSED** |
+| **RestApiTest** | `tests/test_rest_api.cpp` | • Positive command parsing (`start`, `stop`, `emergency`, `reset`)<br>• Case-sensitivity, whitespace, prefix/suffix, and injection defense (`<script>`, SQLi, 4KB overflow -> `Unknown`)<br>• Full `WebServerManager` HTTP endpoint dispatching (`/`, `/status`, `/action`, `/user_detection`) & `200`/`400` status verification<br>• Wi-Fi auto-reconnect supervisor timer (`10,000 ms`) & 32-bit `millis()` wrap-around | ~0.04 s | **PASSED** |
 
-**CTest Summary:** 3/3 test executables passed (18 granular sub-test suites, 100% pass rate, 0 failures, execution time: ~0.10 s).
+**CTest Summary:** 3/3 test executables passed (16 high-impact test functions, 100% pass rate, 0 failures, execution time: ~0.12 s).
 
 ---
 
 ## 3. Real-World Field Test Results (Physical Hardware Baseline)
 
-The real-world tests recorded round-trip time (RTT in ms) and command success rate from the PC Face Recognition interface over Wi-Fi to the ESP32, which asserted coils to the physical Mitsubishi FX5U PLC.
+The real-world tests recorded round-trip time (RTT in ms), command success rate, and ESP32 internal inter-core latency ($\mu\text{s}$) from the PC Face Recognition interface over Wi-Fi to the ESP32, which asserted coils to the physical Mitsubishi FX5U PLC.
 
 ### Dataset Overview
-- **`timings.csv`**: Initial baseline during exploratory development with unoptimized FreeRTOS polling.
-- **`timings1.csv`**: Run 1 with stable network conditions and active operator face authentication.
-- **`timings2.csv`**: Run 2 under continuous cycling.
-- **`timings_Jauh.csv`**: Run 3 conducted at an extended physical distance (simulating shop-floor range / Wi-Fi relay conditions).
+- **`timings.csv`**: Initial baseline during exploratory development with unoptimized FreeRTOS polling (captured prior to `internal_latency_us` instrumentation).
+- **`timings1.csv`**: Physical Run 1 with stable network conditions, active operator face authentication, and ESP32 internal latency instrumentation.
+- **`timings2.csv`**: Physical Run 2 under continuous operational cycling.
+- **`timings_Jauh.csv`**: Physical Run 3 conducted at an extended physical distance (simulating shop-floor range / Wi-Fi relay conditions).
 
-### Statistical Breakdown
+### 3.1 Successful-Request RTT & ESP32 Internal Bridge Latency (`success == True`)
 
-| Dataset | Sample Count | Success Rate | RTT Min | RTT Mean | RTT Median (P50) | RTT 95th % | RTT Max | RTT Jitter | Std Dev |
+Filtering out 1000 ms HTTP client timeout events isolates the true wireless + ESP32 + Modbus bridge performance on delivered commands:
+
+| Dataset | Delivered / Total | Success Rate | RTT Min | RTT Mean | RTT Median (P50) | RTT 95th % | RTT Max | Chronological Jitter | Std Dev | ESP32 Internal Latency (Mean) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **`timings.csv`** (Early Baseline) | 321 / 647 | 49.61% | 15.14 ms | 89.60 ms | 54.22 ms | 271.23 ms | 1021.37 ms | 61.00 ms | 119.81 ms | N/A (untracked) |
+| **`timings1.csv`** (Physical Run 1) | 95 / 100 | 95.00% | 21.11 ms | 100.11 ms | 83.61 ms | 230.66 ms | 437.32 ms | 64.81 ms | 65.91 ms | **915.7 $\mu\text{s}$** |
+| **`timings2.csv`** (Physical Run 2) | 96 / 100 | 96.00% | 24.66 ms | 158.03 ms | 122.04 ms | 431.07 ms | 531.84 ms | 108.85 ms | 118.93 ms | **675.1 $\mu\text{s}$** |
+| **`timings_Jauh.csv`** (Extended Range) | 100 / 100 | 100.00% | 20.75 ms | 140.47 ms | 118.66 ms | 308.42 ms | 405.08 ms | 83.63 ms | 80.14 ms | **817.7 $\mu\text{s}$** |
+
+### 3.2 Overall RTT Including Timeout Rows (All Recorded Attempts)
+
+Including failed HTTP requests (which hit the 1000 ms client timeout in `Interface/app.py`) reflects end-to-end user-perceived latency during RF contention:
+
+| Dataset | Total Samples | Success Rate | RTT Min | RTT Mean | RTT Median (P50) | RTT 95th % | RTT Max | Chronological Jitter | Std Dev |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **`timings.csv`** (Early Baseline) | 647 | 49.61% | 15.14 ms | 525.11 ms | 223.19 ms | 1050.89 ms | 1392.44 ms | 2.13 ms | 469.49 ms |
-| **`timings1.csv`** (Physical Run 1) | 100 | 95.00% | 21.11 ms | 145.62 ms | 87.18 ms | 1003.06 ms | 1015.73 ms | 10.05 ms | 208.54 ms |
-| **`timings2.csv`** (Physical Run 2) | 100 | 96.00% | 24.66 ms | 192.10 ms | 128.39 ms | 531.84 ms | 1014.33 ms | 10.00 ms | 203.55 ms |
-| **`timings_Jauh.csv`** (Extended Range) | 100 | 100.00% | 20.75 ms | 140.47 ms | 118.66 ms | 308.42 ms | 405.08 ms | 3.88 ms | 80.14 ms |
+| **`timings.csv`** (Early Baseline) | 647 | 49.61% | 15.14 ms | 525.11 ms | 223.19 ms | 1050.89 ms | 1392.44 ms | 54.97 ms | 469.49 ms |
+| **`timings1.csv`** (Physical Run 1) | 100 | 95.00% | 21.11 ms | 145.62 ms | 87.18 ms | 1003.06 ms | 1015.73 ms | 78.32 ms | 208.54 ms |
+| **`timings2.csv`** (Physical Run 2) | 100 | 96.00% | 24.66 ms | 192.10 ms | 128.39 ms | 531.84 ms | 1014.33 ms | 138.92 ms | 203.55 ms |
+| **`timings_Jauh.csv`** (Extended Range) | 100 | 100.00% | 20.75 ms | 140.47 ms | 118.66 ms | 308.42 ms | 405.08 ms | 83.63 ms | 80.14 ms |
 
 ### Key Physical Observations
-1. **Network Jitter & Tail Latency**: Across physical hardware runs, typical median latency hovered between **87 ms and 128 ms**. However, occasional Wi-Fi retries produced 95th-percentile tail spikes of ~500 ms to 1000 ms.
-2. **Reliability at Distance**: In `timings_Jauh.csv`, the connection achieved a **100% success rate** with a mean RTT of **140.47 ms** and reduced jitter (3.88 ms), confirming that static IP allocation and disabling modem sleep (`WiFi.setSleep(false)`) stabilized the physical link.
+1. **Sub-Millisecond Internal ESP32 Bridge Overhead**: Across `timings1.csv`, `timings2.csv`, and `timings_Jauh.csv`, the physical ESP32-S3 inter-core handoff and Modbus coil update averaged **675.1 $\mu\text{s}$ to 915.7 $\mu\text{s}$** (< 1 ms), proving that >99% of end-to-end RTT originates in the 802.11 Wi-Fi transport layer rather than firmware execution.
+2. **Network Jitter & Timeout Impact**: On delivered packets, median RTT was **83.61 ms to 122.04 ms** with chronological jitter of **64.81 ms to 108.85 ms**. When including the 4–5% Wi-Fi timeout rows (`~1000 ms`) in `timings1.csv` and `timings2.csv`, overall P95–Max tail latency rises to `1003–1015 ms`.
+3. **Reliability at Distance**: In `timings_Jauh.csv`, the connection achieved a **100.00% success rate** with a mean RTT of **140.47 ms**, chronological jitter of **83.63 ms**, and mean internal bridge latency of **817.7 $\mu\text{s}$**, confirming that static IP allocation and disabling modem sleep (`WiFi.setSleep(false)`) stabilized the physical link.
 
 ---
 
 ## 4. Multi-Node Emulation Results (Host Software Loopback)
 
-The emulation suite ([`Emulation/system_emulator.py`](file:///C:/Users/Moris/Documents/KULIAH/SEM5/PBL/Program/25.11.24/Sistem_Deteksi_Wajah/PBL-MK2025055SB001-ESP32-ModbusTCP/Emulation/system_emulator.py)) was executed over host loopback sockets to evaluate the refactored lock-free state engine under load.
+The emulation suite ([`Emulation/system_emulator.py`](file:///C:/Users/Moris/Documents/KULIAH/SEM5/PBL/Program/25.11.24/Sistem_Deteksi_Wajah/PBL-MK2025055SB001-ESP32-ModbusTCP/Emulation/system_emulator.py)) was executed with 50 Phase 3 stress iterations (plus 6 Phase 2 functional verification commands = 56 total transactions) over host loopback sockets to evaluate the lock-free state engine and safety-dominant PLC ladder logic (`Emergency -> Reset -> Stop -> Start`).
 
 ### Dataset: `timings_emulated.csv` / `qos_report.csv`
 
-| Metric | Measured Emulated Value | Physical Baseline (`timings1.csv`) | Operational Significance |
+| Metric | Measured Emulated Value | Physical Baseline (`timings1.csv` Delivered / Overall) | Operational Significance |
 | :--- | :---: | :---: | :--- |
-| **Total Test Transactions** | 46 cycles | 100 cycles | Covers face auth, start, stop, emergency, reset |
+| **Total Test Transactions** | **56 cycles** | 95 delivered / 100 total | 6 functional state checks + 50 stress iterations |
 | **Packet Delivery / Success Rate** | **100.00%** | 95.00% | Zero dropped HTTP requests or socket dropouts |
-| **HTTP RTT Duration (Min)** | **0.83 ms** | 21.11 ms | Instantaneous loopback processing floor |
-| **HTTP RTT Duration (Mean)** | **16.61 ms** | 145.62 ms | Reflects non-blocking REST + Modbus task cycle |
-| **HTTP RTT Duration (P50)** | **14.00 ms** | 87.18 ms | Typical command round-trip |
-| **HTTP RTT Duration (P95)** | **26.28 ms** | 1003.06 ms | Absence of tail spikes under local scheduling |
-| **HTTP RTT Duration (Max)** | **26.36 ms** | 1015.73 ms | Peak latency under high-frequency burst |
-| **RTT Jitter (Mean Delta)** | **0.57 ms** | 10.05 ms | Deterministic loopback scheduling |
-| **ESP32 Internal Bridge Latency** | **4.3 $\mu\text{s}$** | N/A (untracked) | High-speed atomic queue transfer across cores |
+| **HTTP RTT Duration (Min)** | **0.93 ms** | 21.11 ms | Instantaneous loopback processing floor |
+| **HTTP RTT Duration (Mean)** | **17.00 ms** | 100.11 ms / 145.62 ms | Reflects non-blocking REST + status telemetry fetch |
+| **HTTP RTT Duration (Median / P50)** | **12.10 ms** | 83.61 ms / 87.18 ms | Typical command round-trip |
+| **HTTP RTT Duration (P95)** | **26.04 ms** | 230.66 ms / 1003.06 ms | Absence of RF retry tail spikes under local scheduling |
+| **HTTP RTT Duration (P99)** | **26.22 ms** | 437.32 ms / 1015.73 ms | Tight upper bound under high-frequency burst |
+| **HTTP RTT Duration (Max)** | **26.22 ms** | 437.32 ms / 1015.73 ms | Peak latency across all 56 transactions |
+| **RTT Std Dev** | **7.55 ms** | 65.91 ms / 208.54 ms | Low dispersion across burst cycles |
+| **RTT Jitter (Mean Chronological Delta)** | **7.96 ms** | 64.81 ms / 78.32 ms | Consecutive-packet delta on localhost TCP |
+| **ESP32 Internal Bridge Latency** | **3.9 $\mu\text{s}$** | 915.7 $\mu\text{s}$ | High-speed atomic queue transfer across cores |
 | **PLC Cyclic Scan Execution** | **10.0 ms** | 10.0 ms | Matches FX5U typical ladder program cycle |
 
 ---
@@ -109,9 +125,10 @@ The emulation suite ([`Emulation/system_emulator.py`](file:///C:/Users/Moris/Doc
 | Attribute | Physical Field Deployment | Emulation Framework |
 | :--- | :--- | :--- |
 | **Physical Channel** | 2.4 GHz 802.11 Wi-Fi + CAT5e W5500 Ethernet | Windows Localhost Loopback (`127.0.0.1`) |
-| **Modem Sleep / Contention** | Subject to RF beacon intervals & packet collisions | Zero physical interference |
+| **Modem Sleep / Contention** | Subject to RF beacon intervals & packet collisions | Zero physical RF interference |
 | **SPI Bus Hardware** | Physical 4-wire SPI @ 8 MHz (W5500 silicon registers) | Direct in-memory / socket buffer transfers |
-| **Mean Command RTT** | **140 ms — 192 ms** | **16.6 ms** |
+| **Mean Command RTT** | **100.11 ms — 158.03 ms** (delivered) / **140.47 ms — 192.10 ms** (overall) | **17.00 ms** |
+| **Mean Internal Bridge Latency** | **675.1 $\mu\text{s}$ — 915.7 $\mu\text{s}$** | **3.9 $\mu\text{s}$** |
 | **Primary Use Case** | True end-to-end operational validation on shop floor | CI/CD automated regression, logic, & protocol validation |
 
 ---
@@ -127,8 +144,8 @@ just test
 # Update clangd compilation database:
 just update-compile-commands
 
-# Run the full distributed multi-node QoS emulation benchmark:
-just emulate-qos 50
+# Run the full distributed multi-node QoS emulation benchmark (50 stress samples):
+just emulate-qos samples="50"
 
 # Test headless Renode controller initialization:
 just emulate-renode

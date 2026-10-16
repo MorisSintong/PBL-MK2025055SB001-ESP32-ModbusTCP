@@ -35,6 +35,7 @@ if os.path.exists('trainer/trainer.yml'):
     model_trained = True
     print("Model Loaded.")
 else:
+    model_trained = False
     print("ERROR: Trainer tidak ditemukan!")
 
 # --- REGISTRATION & TRAINING GLOBALS ---
@@ -43,7 +44,6 @@ registration_id = 0
 registration_count = 0
 registration_limit = 30
 training_in_progress = False
-model_trained = False
 
 def getImagesAndLabels(path):
     imagePaths = [os.path.join(path,f) for f in os.listdir(path)]     
