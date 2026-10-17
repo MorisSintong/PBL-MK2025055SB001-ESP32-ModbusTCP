@@ -23,7 +23,7 @@ the Assembly Station that:
 ## Repository Layout
 
 | Path | Description |
-| --- | --- |\
+| --- | --- |
 | `Electrical-Schematics/` | KiCad project and rendered images of the electrical wiring (ESP32-S3 + W5500 + PLC I/O). |
 | `ESP32-Program/` | Modular C++17 firmware for the ESP32-S3 (CMake + Ninja + Xtensa GCC 16.1.0 + FreeRTOS + Modbus TCP + CTest host suite). |
 | `Emulation/` | Multi-node hardware emulation (Virtual ESP32 Bridge, Virtual FX5U PLC, Virtual HMI, Renode) & QoS benchmark suite. |
