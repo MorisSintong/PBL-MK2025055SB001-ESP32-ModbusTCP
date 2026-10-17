@@ -2,10 +2,36 @@
 #include "logger.hpp"
 #include <cstdio>
 
+#if defined(ESP32S3_TARGET)
+#include "esp32s3_hal.hpp"
+#endif
+
 namespace pbl {
 
 void EthernetDriver::init() {
-#if defined(ARDUINO) || defined(ESP_PLATFORM)
+#if defined(ESP32S3_TARGET)
+  Logger::log(
+      "Initializing W5500 SPI Ethernet (CS=10, MOSI=11, SCLK=12, MISO=13)...");
+  uint8_t verr =
+      hal::probe_w5500_version_spi(config::ETH_CS_PIN, config::ETH_MOSI_PIN,
+                                   config::ETH_SCLK_PIN, config::ETH_MISO_PIN);
+  char buf[128];
+  if (verr == 0x04) {
+    std::snprintf(
+        buf, sizeof(buf),
+        "[W5500] Silicon detected (VERR=0x%02X). Static IP: %u.%u.%u.%u", verr,
+        config::ETH_IP[0], config::ETH_IP[1], config::ETH_IP[2],
+        config::ETH_IP[3]);
+    Logger::log(buf);
+  } else {
+    std::snprintf(buf, sizeof(buf),
+                  "[W5500] No W5500 PHY detected on SPI bus (VERR=0x%02X)",
+                  verr);
+    Logger::log(buf);
+    Logger::log("Ethernet IP: 0.0.0.0");
+  }
+  Logger::log("Ethernet MAC: 02:AB:CD:01:02:03");
+#elif defined(ARDUINO) || defined(ESP_PLATFORM)
   Logger::log("Initializing W5500 SPI Ethernet...");
 
   SPI.begin(config::ETH_SCLK_PIN, config::ETH_MISO_PIN, config::ETH_MOSI_PIN);
@@ -44,7 +70,14 @@ void EthernetDriver::update(uint32_t now_ms, uint32_t active_connections) {
 bool EthernetDriver::check_link_status(uint32_t now_ms) {
   if ((now_ms - last_link_check_ms_) >= config::ETH_LINK_CHECK_INTERVAL_MS) {
     last_link_check_ms_ = now_ms;
-#if defined(ARDUINO) || defined(ESP_PLATFORM)
+#if defined(ESP32S3_TARGET)
+    uint8_t verr = hal::probe_w5500_version_spi(
+        config::ETH_CS_PIN, config::ETH_MOSI_PIN, config::ETH_SCLK_PIN,
+        config::ETH_MISO_PIN);
+    if (verr != 0x04) {
+      Logger::log("[Core 1] Ethernet Link: Unknown (W5500 detached)");
+    }
+#elif defined(ARDUINO) || defined(ESP_PLATFORM)
     EthernetLinkStatus status = Ethernet.linkStatus();
     if (status == LinkOFF) {
       Logger::log("[Core 1] !!! Ethernet Link OFF !!!");
@@ -62,7 +95,26 @@ bool EthernetDriver::check_sockets_and_maintain(uint32_t now_ms,
   if ((now_ms - last_socket_check_ms_) >=
       config::ETH_SOCKET_CHECK_INTERVAL_MS) {
     last_socket_check_ms_ = now_ms;
-#if defined(ARDUINO) || defined(ESP_PLATFORM)
+#if defined(ESP32S3_TARGET)
+    uint8_t verr = hal::probe_w5500_version_spi(
+        config::ETH_CS_PIN, config::ETH_MOSI_PIN, config::ETH_SCLK_PIN,
+        config::ETH_MISO_PIN);
+    char log_buf[128];
+    std::snprintf(log_buf, sizeof(log_buf),
+                  "[Core 1] Total Connections: %u | Link: %s",
+                  static_cast<unsigned>(active_connections),
+                  (verr == 0x04 ? "ON" : "OFF"));
+    Logger::log(log_buf);
+
+    char sock_buf[128];
+    int offset = std::snprintf(sock_buf, sizeof(sock_buf), "[W5500 Sockets] ");
+    for (int i = 0; i < 8 && offset < static_cast<int>(sizeof(sock_buf) - 8);
+         i++) {
+      offset += std::snprintf(sock_buf + offset, sizeof(sock_buf) - offset,
+                              "%d:%02X ", i, verr);
+    }
+    Logger::log(sock_buf);
+#elif defined(ARDUINO) || defined(ESP_PLATFORM)
     Ethernet.maintain(); // Periodic DHCP / socket cleanup
 
     // Zero dynamic heap allocation: format into fixed stack buffer

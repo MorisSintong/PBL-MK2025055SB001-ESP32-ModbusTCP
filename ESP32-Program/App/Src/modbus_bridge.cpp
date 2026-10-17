@@ -23,47 +23,57 @@ void ModbusBridge::init() {
   mb_.server(config::MODBUS_TCP_PORT);
   mb_.addCoil(0, false, config::MODBUS_COIL_COUNT);
   mb_.addHreg(0, 0, config::MODBUS_HREG_COUNT);
-  Logger::log("Modbus TCP Server initialized on port " +
-              std::to_string(config::MODBUS_TCP_PORT));
+  char buf[96];
+  std::snprintf(buf, sizeof(buf), "Modbus TCP Server initialized on port %u",
+                static_cast<unsigned>(config::MODBUS_TCP_PORT));
+  Logger::log(buf);
 }
 
 void ModbusBridge::update(BridgeState &state, uint32_t now_ms,
                           uint32_t now_us) {
+  char log_buf[96];
   // 1. Process command requests (Atomic inter-core)
   if (state.consume_start_request(now_us)) {
     mb_.Coil(config::COIL_BTN_START, true);
     state.start_pulse_btn1(now_ms);
-    Logger::log("BTN 1 (Start) Triggered. Latency: " +
-                std::to_string(state.get_last_latency_us()) + " us");
+    std::snprintf(log_buf, sizeof(log_buf),
+                  "BTN 1 (Start) Triggered. Latency: %u us",
+                  static_cast<unsigned>(state.get_last_latency_us()));
+    Logger::log(log_buf);
   }
 
   if (state.consume_stop_request(now_us)) {
     mb_.Coil(config::COIL_BTN_STOP, true);
     state.start_pulse_btn2(now_ms);
-    Logger::log("BTN 2 (Stop) Triggered. Latency: " +
-                std::to_string(state.get_last_latency_us()) + " us");
+    std::snprintf(log_buf, sizeof(log_buf),
+                  "BTN 2 (Stop) Triggered. Latency: %u us",
+                  static_cast<unsigned>(state.get_last_latency_us()));
+    Logger::log(log_buf);
   }
 
   if (state.consume_emergency_request(now_us)) {
     mb_.Coil(config::COIL_BTN_EMERGENCY, true);
     state.start_pulse_btn3(now_ms);
-    Logger::log("BTN 3 (Emergency) Triggered. Latency: " +
-                std::to_string(state.get_last_latency_us()) + " us");
+    std::snprintf(log_buf, sizeof(log_buf),
+                  "BTN 3 (Emergency) Triggered. Latency: %u us",
+                  static_cast<unsigned>(state.get_last_latency_us()));
+    Logger::log(log_buf);
   }
 
   if (state.consume_reset_request(now_us)) {
     mb_.Coil(config::COIL_BTN_RESET, true);
     state.start_pulse_btn4(now_ms);
-    Logger::log("Reset Triggered. Latency: " +
-                std::to_string(state.get_last_latency_us()) + " us");
+    std::snprintf(log_buf, sizeof(log_buf), "Reset Triggered. Latency: %u us",
+                  static_cast<unsigned>(state.get_last_latency_us()));
+    Logger::log(log_buf);
   }
 
   // 2. Process face recognition user detection flag
   bool detected_val = false;
   if (state.consume_user_detection_changed(detected_val)) {
     mb_.Coil(config::COIL_USER_DETECTED, detected_val);
-    Logger::log(std::string("User Detection Coil: ") +
-                (detected_val ? "HIGH" : "LOW"));
+    Logger::log(detected_val ? "User Detection Coil: HIGH"
+                             : "User Detection Coil: LOW");
   }
 
   // 3. Process Modbus TCP engine tasks
@@ -90,29 +100,72 @@ void ModbusBridge::update(BridgeState &state, uint32_t now_ms,
   state.update_plc_status(run, stp, emg);
 }
 
-#else // Host / Simulation mode
+#else // Native ESP32S3_TARGET or Host Simulation mode
 
 void ModbusBridge::init() {
+#if defined(ESP32S3_TARGET)
+  char buf[96];
+  std::snprintf(buf, sizeof(buf), "Modbus TCP Server initialized on port %u",
+                static_cast<unsigned>(config::MODBUS_TCP_PORT));
+  Logger::log(buf);
+#else
   Logger::log("ModbusBridge (Host Mock) initialized");
+#endif
 }
 
 void ModbusBridge::update(BridgeState &state, uint32_t now_ms,
                           uint32_t now_us) {
+#if defined(ESP32S3_TARGET)
+  char log_buf[96];
+#endif
   if (state.consume_start_request(now_us)) {
     state.start_pulse_btn1(now_ms);
+#if defined(ESP32S3_TARGET)
+    std::snprintf(log_buf, sizeof(log_buf),
+                  "[Core 1] BTN 1 (Start) Coil %u -> HIGH | Latency: %u us",
+                  static_cast<unsigned>(config::COIL_BTN_START),
+                  static_cast<unsigned>(state.get_last_latency_us()));
+    Logger::log(log_buf);
+#endif
   }
   if (state.consume_stop_request(now_us)) {
     state.start_pulse_btn2(now_ms);
+#if defined(ESP32S3_TARGET)
+    std::snprintf(log_buf, sizeof(log_buf),
+                  "[Core 1] BTN 2 (Stop) Coil %u -> HIGH | Latency: %u us",
+                  static_cast<unsigned>(config::COIL_BTN_STOP),
+                  static_cast<unsigned>(state.get_last_latency_us()));
+    Logger::log(log_buf);
+#endif
   }
   if (state.consume_emergency_request(now_us)) {
     state.start_pulse_btn3(now_ms);
+#if defined(ESP32S3_TARGET)
+    std::snprintf(log_buf, sizeof(log_buf),
+                  "[Core 1] BTN 3 (Emergency) Coil %u -> HIGH | Latency: %u us",
+                  static_cast<unsigned>(config::COIL_BTN_EMERGENCY),
+                  static_cast<unsigned>(state.get_last_latency_us()));
+    Logger::log(log_buf);
+#endif
   }
   if (state.consume_reset_request(now_us)) {
     state.start_pulse_btn4(now_ms);
+#if defined(ESP32S3_TARGET)
+    std::snprintf(log_buf, sizeof(log_buf),
+                  "[Core 1] BTN 4 (Reset) Coil %u -> HIGH | Latency: %u us",
+                  static_cast<unsigned>(config::COIL_BTN_RESET),
+                  static_cast<unsigned>(state.get_last_latency_us()));
+    Logger::log(log_buf);
+#endif
   }
 
   bool detected = false;
-  state.consume_user_detection_changed(detected);
+  if (state.consume_user_detection_changed(detected)) {
+#if defined(ESP32S3_TARGET)
+    Logger::log(detected ? "[Core 1] User Detection Coil 116 -> HIGH"
+                         : "[Core 1] User Detection Coil 116 -> LOW");
+#endif
+  }
 
   state.check_and_clear_pulse_btn1(now_ms);
   state.check_and_clear_pulse_btn2(now_ms);

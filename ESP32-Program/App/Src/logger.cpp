@@ -1,6 +1,34 @@
 #include "logger.hpp"
 
-#if defined(ARDUINO) || defined(ESP_PLATFORM)
+#if defined(ESP32S3_TARGET)
+#include "app_config.hpp"
+#include "esp32s3_hal.hpp"
+
+namespace pbl {
+
+void Logger::init() {
+  uart_tx_wait_idle(0);
+  const uint32_t clk_div = (40000000UL << 4) / config::SERIAL_BAUD_RATE;
+  uart_div_modify(0, clk_div);
+  ets_delay_us(500);
+}
+
+void Logger::log(const std::string &msg) { log(msg.c_str()); }
+
+void Logger::log(const char *msg) {
+  if (!msg) {
+    return;
+  }
+  while (*msg) {
+    uart_tx_one_char(static_cast<uint8_t>(*msg++));
+  }
+  uart_tx_one_char(static_cast<uint8_t>('\r'));
+  uart_tx_one_char(static_cast<uint8_t>('\n'));
+}
+
+} // namespace pbl
+
+#elif defined(ARDUINO) || defined(ESP_PLATFORM)
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>

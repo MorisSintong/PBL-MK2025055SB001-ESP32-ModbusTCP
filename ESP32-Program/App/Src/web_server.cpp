@@ -151,10 +151,21 @@ void WebServerManager::update(uint32_t now_ms) {
   check_wifi_supervisor(now_ms);
 }
 
-#else // Host / Simulation mode
+#else // Native ESP32S3_TARGET or Host Simulation mode
 
 void WebServerManager::init() {
+#if defined(ESP32S3_TARGET)
+  char buf[128];
+  std::snprintf(
+      buf, sizeof(buf),
+      "[Core 0] REST API initialized (Target IP: %u.%u.%u.%u:%u, SSID: %s)",
+      config::WIFI_IP[0], config::WIFI_IP[1], config::WIFI_IP[2],
+      config::WIFI_IP[3], static_cast<unsigned>(config::WEB_SERVER_PORT),
+      config::WIFI_SSID);
+  Logger::log(buf);
+#else
   Logger::log("WebServerManager (Host Mock) initialized");
+#endif
 }
 
 void WebServerManager::update(uint32_t now_ms) {

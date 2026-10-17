@@ -17,14 +17,13 @@
         },
         {
             "name": "release",
-            "displayName": "Host Release Build (Clang + Ninja)",
-            "description": "Builds optimized release firmware executable using Clang and Ninja",
+            "displayName": "ESP32-S3 Xtensa Cross-Compilation Release Build (GCC 16.1.0 + Ninja)",
+            "description": "Cross-compiles native ESP32-S3 ELF and generates firmware.bin via esptool",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build-release",
+            "toolchainFile": "${sourceDir}/cmake/esp32s3-toolchain.cmake",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
-                "CMAKE_C_COMPILER": "clang",
-                "CMAKE_CXX_COMPILER": "clang++",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
                 "BUILD_TESTS": "OFF"
             }

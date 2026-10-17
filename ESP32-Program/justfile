@@ -13,7 +13,7 @@ build:
     if (!(Test-Path build-host/build.ninja)) { cmake --preset host-test }
     cmake --build --preset host-test
 
-# Configure and build optimized release target
+# Cross-compile ESP32-S3 target ELF & firmware.bin with Xtensa GCC + Ninja
 build-release:
     if (!(Test-Path build-release/build.ninja)) { cmake --preset release }
     cmake --build --preset release
@@ -27,14 +27,14 @@ clean:
     if (Test-Path build-host) { Remove-Item -Recurse -Force build-host }; if (Test-Path build-release) { Remove-Item -Recurse -Force build-release }; if (Test-Path compile_commands.json) { Remove-Item -Force compile_commands.json }
 
 # Flash ESP32-S3 via probe-rs (SWD / JTAG debug probe)
-flash-probe-rs elf="build-release/ESP32_Modbus_App.elf":
-    if (!(Test-Path "{{elf}}")) { Write-Error "Target ELF '{{elf}}' not found. Provide a cross-compiled ESP32-S3 ELF image."; exit 1 }
-    probe-rs run --chip esp32s3 {{elf}}
+flash-probe-rs elf="build-release/ESP32_Modbus_App.elf": build-release
+    if (!(Test-Path "{{elf}}")) { Write-Error "Target ELF '{{elf}}' not found."; exit 1 }
+    probe-rs run --chip esp32s3 "{{elf}}"
 
-# Flash ESP32-S3 via uvx esptool over UART
-flash-esptool port="COM10" bin="build-release/firmware.bin":
+# Flash ESP32-S3 via uvx esptool over UART (builds firmware.bin automatically)
+flash-esptool port="COM10" bin="build-release/firmware.bin": build-release
     if (!(Test-Path "{{bin}}")) { Write-Error "Target binary '{{bin}}' not found."; exit 1 }
-    uvx esptool --chip esp32s3 --port {{port}} --baud 921600 write-flash 0x10000 "{{bin}}"
+    uvx esptool --chip esp32s3 --port {{port}} --baud 921600 write-flash 0x0 "{{bin}}"
 
 # Run hardware flash & security diagnostics on ESP32-S3 via uvx esptool
 diag-esptool port="COM10":
