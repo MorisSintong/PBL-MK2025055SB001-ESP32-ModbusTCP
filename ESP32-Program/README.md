@@ -4,6 +4,7 @@ Firmware for the **ESP32-S3 DevKitC-1** acting as a high-performance protocol br
 
 - **Wi-Fi + REST Server (Core 0)**: Non-blocking HTTP endpoints (`/`, `/status`, `/action`, `/user_detection`) with modem sleep disabled for minimum response latency.
 - **Ethernet + Modbus TCP Server (Core 1)**: Hardware SPI driving a W5500 Ethernet transceiver at 8 MHz, serving Modbus TCP on **Port 503** with atomic cross-core synchronization and momentary pulse timer handling.
+- **Native Embedded Toolchain**: Built with **CMake + Ninja** using the standalone **Xtensa GCC 16.1.0** cross-compiler (`C:\Tools\xtensa-esp-elf`) and a custom ROM-backed linker script (`ld/esp32s3_out.ld`), with **zero dependencies on PlatformIO or Arduino IDE**.
 
 ---
 
@@ -17,25 +18,30 @@ ESP32-Program/
 │   ├── Inc/
 │   │   ├── app_config.hpp       # Static IPs, SPI pinouts, Modbus addresses, timings
 │   │   ├── bridge_state.hpp     # Lock-free atomic inter-core synchronization & metrics
+│   │   ├── esp32s3_hal.hpp      # Hardware abstraction: ROM functions, cycle timers, SPI
 │   │   ├── eth_driver.hpp       # W5500 SPI driver, link status, socket diagnostics
-│   │   ├── logger.hpp           # Mutex-protected thread-safe serial logging
+│   │   ├── logger.hpp           # Mutex-protected thread-safe serial logging (UART0 @ 921600)
 │   │   ├── modbus_bridge.hpp    # Modbus TCP server, coil dispatching & PLC feedback
 │   │   └── web_server.hpp       # HTTP server request routing & JSON serialization
 │   └── Src/
 │       ├── bridge_state.cpp     # State transition, latency tracking & momentary pulse logic
 │       ├── eth_driver.cpp       # W5500 initialization & socket maintenance
-│       ├── logger.cpp           # FreeRTOS mutex / Host std::mutex logger
+│       ├── logger.cpp           # Direct UART0 / FreeRTOS mutex / Host std::mutex logger
 │       ├── modbus_bridge.cpp    # Modbus TCP engine & coil mapping
 │       ├── web_server.cpp       # REST API endpoints & responses
-│       └── main.cpp             # Clean FreeRTOS dual-core task orchestrator
+│       └── main.cpp             # Clean dual-core orchestrator & on-chip verification entry
+├── cmake/
+│   └── esp32s3-toolchain.cmake  # Xtensa GCC 16.1.0 cross-compilation toolchain file
+├── ld/
+│   └── esp32s3_out.ld           # ESP32-S3 SRAM1 memory layout & ROM symbol table
 ├── tests/
 │   ├── CMakeLists.txt           # Host CTest harness using Clang
-│   ├── test_bridge_state.cpp    # Unit tests: atomic commands, pulse timeouts, latency
-│   ├── test_modbus_coils.cpp    # Unit tests: register bounds, PLC coil addresses
-│   └── test_rest_api.cpp        # Unit tests: command parsing, JSON serialization
-├── CMakeLists.txt               # Main CMake build definition (target + dual-target tests)
+│   ├── test_bridge_state.cpp    # Unit tests: atomic commands, pulse timeouts, 10k-iter concurrency
+│   ├── test_modbus_coils.cpp    # Unit tests: register bounds, PLC coil addresses, SPI supervision
+│   └── test_rest_api.cpp        # Unit tests: command parsing, JSON serialization, Wi-Fi supervisor
+├── CMakeLists.txt               # Main CMake build definition (cross-compile target + dual-target host tests)
 ├── CMakePresets.json            # Config presets (host-test, release)
-├── justfile                     # Task runner recipes (build, test, flash, monitor)
+├── justfile                     # Task runner recipes (build, test, build-release, flash, monitor)
 ├── .clangd                      # Zed / Clangd language server AST configuration
 └── README.md                    # Firmware documentation
 ```
@@ -44,12 +50,13 @@ ESP32-Program/
 
 ## Toolchain & Requirements
 
-In alignment with the developer system toolchain profile (`AGENTS.md`):
-- **Build System**: CMake 4.2+ & Ninja 1.13+
+In alignment with the developer system toolchain profile:
+- **Build Systems**: CMake 4.2+ & Ninja 1.13+
 - **Host Compiler**: LLVM-MinGW (Clang 23+)
+- **Cross-Compiler**: Xtensa GCC 16.1.0 (`C:\Tools\xtensa-esp-elf\bin\xtensa-esp32s3-elf-g++.exe`)
 - **Primary Editor**: Zed with clangd semantic intelligence via `compile_commands.json`
-- **Task Runner**: `just` (v1.58+)
-- **Debug & Flash Probes**: `probe-rs` (0.32+) over SWD/JTAG, or `uvx esptool` (5.5+) over USB/UART
+- **Task Runner**: `just`
+- **Debug & Flash Tools**: `uvx esptool` (v5.6+) over UART @ 921600 baud, or `probe-rs` over SWD/JTAG
 
 ---
 
@@ -79,29 +86,32 @@ In alignment with the developer system toolchain profile (`AGENTS.md`):
 
 ---
 
-## Build & Test Workflow
+## Build, Test & Flash Workflow
 
 All operations are automated using `just`:
 
 ```powershell
-# 1. Run full host simulation test suite (CTest)
+# 1. Run full host simulation test suite (CTest - 0.04s)
 just test
 
 # 2. Build host simulation binaries
 just build
 
-# 3. Update compile_commands.json for Zed language server
+# 3. Cross-compile native ESP32-S3 ELF & firmware.bin with Xtensa GCC + Ninja
+just build-release
+
+# 4. Update compile_commands.json for Zed language server
 just update-compile-commands
 
-# 4. Clean build artifacts
+# 5. Clean build artifacts (idempotent, exit code 0)
 just clean
 
-# 5. Flash ESP32-S3 over SWD/JTAG using probe-rs
-just flash-probe-rs
+# 6. Run silicon flash and security diagnostics on COM10
+just diag-esptool
 
-# 6. Flash ESP32-S3 over UART using uvx esptool
-just flash-esptool port="COM3" bin="firmware.bin"
+# 7. Flash ESP32-S3 over UART using uvx esptool @ 921600 baud (0.9s write time)
+just flash-esptool
 
-# 7. Monitor serial output @ 921600 baud
-just monitor port="COM3"
+# 8. Monitor serial output @ 921600 baud via uvx pyserial
+just monitor
 ```

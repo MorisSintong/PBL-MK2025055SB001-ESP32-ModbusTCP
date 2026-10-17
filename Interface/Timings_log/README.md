@@ -1,17 +1,15 @@
 # Timings_log
 
-Archived timing measurements from earlier interface/ESP32 round-trip tests.
+Archived timing measurements from interface/ESP32 round-trip tests and host multi-node emulation benchmarks.
 Each CSV records `timestamp, source, command, duration_ms, success,
 internal_latency_us` rows produced by the `_log_timing_csv` helper in the
-interface scripts.
+interface scripts and the multi-node emulator.
 
 ## Files
 
-- `timings.csv` – General run log (default output path used by the scripts).
-- `timings1.csv`, `timings2.csv` – Additional runs captured during testing.
-- `timings_Jauh.csv` – Tests performed with a larger physical distance between
-  the PC/ESP32 and the PLC (latency under range/relay conditions).
+- `timings.csv` – Early baseline run log (captured prior to ESP32 internal bridge latency instrumentation).
+- `timings1.csv`, `timings2.csv` – Physical hardware baseline runs with internal bridge latency tracking (`915.7 us` and `675.1 us`).
+- `timings_Jauh.csv` – Physical tests performed at extended distance between PC and ESP32 (`817.7 us` internal latency, 100% packet delivery).
+- `timings_emulated.csv` – High-frequency multi-node host emulation benchmark (56 transactions, 100% success rate, `17.00 ms` mean RTT, `3.9 us` bridge latency).
 
-These files are kept for reference and for plotting performance in the project
-report. New runs will recreate `timings.csv` in the `Interface/` working
-directory unless the `_csv_path` variable is changed inside the scripts.
+These datasets are analyzed in detail in [`test_results.md`](../../test_results.md).

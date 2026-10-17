@@ -29,5 +29,5 @@ The schematic wires:
 - I/O routing between the ESP32 coils and the PLC digital inputs/outputs.
 
 Use this as the wiring reference when assembling or troubleshooting the
-hardware. The same pin assignments must match those defined in
-`ESP32-Program/src/main.cpp`.
+hardware. The pin assignments match those configured in
+`ESP32-Program/App/Inc/app_config.hpp`.
