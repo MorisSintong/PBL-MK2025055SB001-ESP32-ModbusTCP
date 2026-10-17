@@ -36,12 +36,16 @@ emulate-renode:
 
 # Flash ESP32-S3 over SWD/JTAG using probe-rs
 flash-probe-rs elf="build-release/ESP32_Modbus_App.elf":
-    just -f ESP32-Program/justfile -d ESP32-Program flash-probe-rs elf={{elf}}
+    just -f ESP32-Program/justfile -d ESP32-Program flash-probe-rs "{{elf}}"
 
 # Flash ESP32-S3 over UART using uvx esptool
-flash-esptool port="COM3" bin="build-release/firmware.bin":
-    just -f ESP32-Program/justfile -d ESP32-Program flash-esptool port={{port}} bin={{bin}}
+flash-esptool port="COM10" bin="build-release/firmware.bin":
+    just -f ESP32-Program/justfile -d ESP32-Program flash-esptool "{{port}}" "{{bin}}"
 
-# Serial monitor @ 921600 baud
-monitor port="COM3" baud="921600":
-    just -f ESP32-Program/justfile -d ESP32-Program monitor port={{port}} baud={{baud}}
+# Run hardware flash & security diagnostics on ESP32-S3 via uvx esptool
+diag-esptool port="COM10":
+    just -f ESP32-Program/justfile -d ESP32-Program diag-esptool "{{port}}"
+
+# Serial monitor @ 921600 baud via uvx pyserial
+monitor port="COM10" baud="921600":
+    just -f ESP32-Program/justfile -d ESP32-Program monitor "{{port}}" "{{baud}}"

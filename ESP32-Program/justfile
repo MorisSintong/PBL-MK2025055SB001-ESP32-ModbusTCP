@@ -32,13 +32,18 @@ flash-probe-rs elf="build-release/ESP32_Modbus_App.elf":
     probe-rs run --chip esp32s3 {{elf}}
 
 # Flash ESP32-S3 via uvx esptool over UART
-flash-esptool port="COM3" bin="build-release/firmware.bin":
+flash-esptool port="COM10" bin="build-release/firmware.bin":
     if (!(Test-Path "{{bin}}")) { Write-Error "Target binary '{{bin}}' not found."; exit 1 }
-    uvx esptool --chip esp32s3 --port {{port}} --baud 921600 write_flash 0x10000 {{bin}}
+    uvx esptool --chip esp32s3 --port {{port}} --baud 921600 write-flash 0x10000 "{{bin}}"
 
-# Serial monitor via pyserial miniterm
-monitor port="COM3" baud="921600":
-    python -m serial.tools.miniterm {{port}} {{baud}}
+# Run hardware flash & security diagnostics on ESP32-S3 via uvx esptool
+diag-esptool port="COM10":
+    uvx esptool --chip esp32s3 --port {{port}} flash-id
+    uvx esptool --chip esp32s3 --port {{port}} get-security-info
+
+# Serial monitor via uvx pyserial miniterm
+monitor port="COM10" baud="921600":
+    uvx --from pyserial python -m serial.tools.miniterm {{port}} {{baud}}
 
 # Copy compile_commands.json to ESP32-Program root for Zed AST indexing
 update-compile-commands: build
