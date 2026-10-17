@@ -19,24 +19,24 @@ This document compiles all test methodologies, verification suites, and performa
 
 ```mermaid
 flowchart TD
-    subgraph Layer1 [1. Unit Testing - CTest]
-        UT1[BridgeState Atomic Logic, Concurrency & Wrap-Around]
-        UT2[Modbus Coils, Ethernet Driver Supervision & Hardware Sanity]
-        UT3[REST API Endpoints, Wi-Fi Supervisor & Injection Defense]
+    subgraph Layer1 ["1. Unit Testing - CTest"]
+        UT1["BridgeState Atomic Logic, Concurrency & Wrap-Around"]
+        UT2["Modbus Coils, Ethernet Driver Supervision & Hardware Sanity"]
+        UT3["REST API Endpoints, Wi-Fi Supervisor & Injection Defense"]
     end
 
-    subgraph Layer2 [2. Host Emulation - Multi-Node Network]
-        EMU_HMI[Virtual Face Recognition HMI]
-        EMU_ESP[Virtual ESP32 Bridge<br>HTTP :8080 | Modbus :5503]
-        EMU_PLC[Virtual FX5U PLC Client<br>10ms Scan Cycle]
+    subgraph Layer2 ["2. Host Emulation - Multi-Node Network"]
+        EMU_HMI["Virtual Face Recognition HMI"]
+        EMU_ESP["Virtual ESP32 Bridge<br>HTTP :8080 &#124; Modbus :5503"]
+        EMU_PLC["Virtual FX5U PLC Client<br>10ms Scan Cycle"]
         EMU_HMI <-->|HTTP REST| EMU_ESP
         EMU_PLC <==>|Modbus TCP| EMU_ESP
     end
 
-    subgraph Layer3 [3. Physical Field Testing - Hardware Baseline]
-        HW_PC[Physical PC Interface]
-        HW_ESP[Physical ESP32-S3 + W5500]
-        HW_PLC[Physical Mitsubishi FX5U PLC]
+    subgraph Layer3 ["3. Physical Field Testing - Hardware Baseline"]
+        HW_PC["Physical PC Interface"]
+        HW_ESP["Physical ESP32-S3 + W5500"]
+        HW_PLC["Physical Mitsubishi FX5U PLC"]
         HW_PC <-->|802.11 Wi-Fi| HW_ESP
         HW_ESP <==>|100BASE-TX Ethernet| HW_PLC
     end

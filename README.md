@@ -42,9 +42,9 @@ graph TD
     ExternalDevice[External Device]
     Output[Output]
 
-    subgraph ESP32Container [ESP32-S3 Physical Device]
+    subgraph ESP32Container ["ESP32-S3 Physical Device"]
         ESP32Core(ESP32-S3)
-        subgraph HostedServices [Hosted Services]
+        subgraph HostedServices ["Hosted Services"]
             WebServer[Web Server]
         end
     end

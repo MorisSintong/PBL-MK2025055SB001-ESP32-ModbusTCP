@@ -10,11 +10,11 @@ Since the physical station has been decommissioned, this infrastructure provides
 
 ```mermaid
 graph TD
-    subgraph Host [Emulated Distributed System]
-        HMI[Virtual PC Face Recognition HMI<br>Workload Generator]
-        ESP32[Virtual ESP32 Protocol Bridge<br>Core 0 HTTP :8080 | Core 1 Modbus :5503]
-        PLC[Virtual Mitsubishi FX5U PLC Client<br>10ms Cyclic Scan Loop]
-        RenodeNode[Renode Virtual Controller<br>Cortex-M Node :15503]
+    subgraph Host ["Emulated Distributed System"]
+        HMI["Virtual PC Face Recognition HMI<br>Workload Generator"]
+        ESP32["Virtual ESP32 Protocol Bridge<br>Core 0 HTTP :8080 &#124; Core 1 Modbus :5503"]
+        PLC["Virtual Mitsubishi FX5U PLC Client<br>10ms Cyclic Scan Loop"]
+        RenodeNode["Renode Virtual Controller<br>Cortex-M Node :15503"]
     end
 
     HMI -->|HTTP REST: /action, /status, /user_detection| ESP32
